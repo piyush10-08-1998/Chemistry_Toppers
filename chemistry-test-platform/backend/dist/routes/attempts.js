@@ -1,0 +1,12 @@
+"use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
+const express_1 = require("express");
+const attemptController_1 = require("../controllers/attemptController");
+const auth_1 = require("../middleware/auth");
+const router = (0, express_1.Router)();
+router.use(auth_1.authenticateToken);
+router.post('/start/:testId', (0, auth_1.requireRole)(['student']), attemptController_1.startTest);
+router.post('/answer', (0, auth_1.requireRole)(['student']), attemptController_1.submitAnswer);
+router.post('/submit', (0, auth_1.requireRole)(['student']), attemptController_1.submitTest);
+router.get('/results/:testId', attemptController_1.getTestResults);
+exports.default = router;

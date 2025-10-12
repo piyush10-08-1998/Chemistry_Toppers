@@ -1,0 +1,390 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Chemistry Test Platform Demo</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            line-height: 1.6;
+        }
+        .container {
+            background: #f4f4f4;
+            padding: 20px;
+            margin: 20px 0;
+            border-radius: 8px;
+        }
+        .success { background: #d4edda; color: #155724; }
+        .error { background: #f8d7da; color: #721c24; }
+        .info { background: #d1ecf1; color: #0c5460; }
+        button {
+            background: #007bff;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 4px;
+            cursor: pointer;
+            margin: 5px;
+        }
+        button:hover { background: #0056b3; }
+        input, textarea {
+            width: 100%;
+            padding: 8px;
+            margin: 5px 0;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            box-sizing: border-box;
+        }
+        .question {
+            background: white;
+            padding: 15px;
+            margin: 10px 0;
+            border-radius: 5px;
+            border: 1px solid #ddd;
+        }
+        .option {
+            margin: 5px 0;
+            padding: 10px;
+            background: #f8f9fa;
+            border-radius: 3px;
+            cursor: pointer;
+        }
+        .option:hover { background: #e9ecef; }
+        .option.selected { background: #007bff; color: white; }
+        .hidden { display: none; }
+    </style>
+</head>
+<body>
+    <h1>🧪 Chemistry Test Platform Demo</h1>
+    
+    <div class="container info">
+        <h3>Platform Status</h3>
+        <p>Backend API: <span id="apiStatus">Checking...</span></p>
+        <p>Features: ✅ Authentication, ✅ Test Creation, ✅ Questions, ✅ Auto-grading</p>
+    </div>
+
+    <div id="loginSection">
+        <div class="container">
+            <h3>👨‍🏫 Login as Teacher</h3>
+            <button onclick="loginAsTeacher()">Login as Teacher (teacher@test.com)</button>
+        </div>
+
+        <div class="container">
+            <h3>👨‍🎓 Login as Student</h3>
+            <button onclick="loginAsStudent()">Login as Student (student@test.com)</button>
+        </div>
+
+        <div class="container">
+            <h3>📝 Register New User</h3>
+            <input type="email" id="regEmail" placeholder="Email">
+            <input type="password" id="regPassword" placeholder="Password">
+            <input type="text" id="regName" placeholder="Full Name">
+            <select id="regRole">
+                <option value="student">Student</option>
+                <option value="teacher">Teacher</option>
+            </select>
+            <button onclick="registerUser()">Register</button>
+        </div>
+    </div>
+
+    <div id="teacherPanel" class="hidden">
+        <div class="container success">
+            <h3>👨‍🏫 Teacher Dashboard</h3>
+            <p>Welcome! You can create tests and add questions.</p>
+            <button onclick="logout()">Logout</button>
+        </div>
+
+        <div class="container">
+            <h3>Create New Test</h3>
+            <input type="text" id="testTitle" placeholder="Test Title">
+            <textarea id="testDescription" placeholder="Test Description"></textarea>
+            <input type="number" id="testDuration" placeholder="Duration (minutes)" value="30">
+            <button onclick="createTest()">Create Test</button>
+        </div>
+
+        <div id="testsList" class="container">
+            <h3>Your Tests</h3>
+            <div id="testsContent">Loading...</div>
+        </div>
+    </div>
+
+    <div id="studentPanel" class="hidden">
+        <div class="container success">
+            <h3>👨‍🎓 Student Dashboard</h3>
+            <p>Welcome! You can take available tests.</p>
+            <button onclick="logout()">Logout</button>
+        </div>
+
+        <div id="availableTests" class="container">
+            <h3>Available Tests</h3>
+            <div id="studentTestsContent">Loading...</div>
+        </div>
+    </div>
+
+    <div id="testInterface" class="hidden">
+        <div class="container info">
+            <h3 id="testTitle">Test in Progress</h3>
+            <p>Time remaining: <span id="timer">30:00</span></p>
+        </div>
+        <div id="questionsContainer"></div>
+        <button onclick="submitTest()" style="background: #28a745;">Submit Test</button>
+    </div>
+
+    <div id="messages"></div>
+
+    <script>
+        let currentToken = '';
+        let currentUser = null;
+        let currentTest = null;
+        let startTime = null;
+
+        // Check API status on load
+        checkApiStatus();
+
+        async function checkApiStatus() {
+            try {
+                const response = await fetch('http://localhost:5000/api/health');
+                const data = await response.json();
+                document.getElementById('apiStatus').textContent = '✅ Running';
+                document.getElementById('apiStatus').style.color = 'green';
+            } catch (error) {
+                document.getElementById('apiStatus').textContent = '❌ Not Running';
+                document.getElementById('apiStatus').style.color = 'red';
+            }
+        }
+
+        async function loginAsTeacher() {
+            await login('teacher@test.com', 'teacher123');
+        }
+
+        async function loginAsStudent() {
+            await login('student@test.com', 'student123');
+        }
+
+        async function login(email, password) {
+            try {
+                const response = await fetch('http://localhost:5000/api/auth/login', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ email, password })
+                });
+
+                const data = await response.json();
+                if (response.ok) {
+                    currentToken = data.token;
+                    currentUser = data.user;
+                    showMessage(`Welcome ${data.user.name}!`, 'success');
+                    
+                    document.getElementById('loginSection').classList.add('hidden');
+                    if (data.user.role === 'teacher') {
+                        document.getElementById('teacherPanel').classList.remove('hidden');
+                        loadTeacherTests();
+                    } else {
+                        document.getElementById('studentPanel').classList.remove('hidden');
+                        loadStudentTests();
+                    }
+                } else {
+                    showMessage(data.error, 'error');
+                }
+            } catch (error) {
+                showMessage('Login failed: ' + error.message, 'error');
+            }
+        }
+
+        async function registerUser() {
+            const email = document.getElementById('regEmail').value;
+            const password = document.getElementById('regPassword').value;
+            const name = document.getElementById('regName').value;
+            const role = document.getElementById('regRole').value;
+
+            if (!email || !password || !name) {
+                showMessage('Please fill all fields', 'error');
+                return;
+            }
+
+            try {
+                const response = await fetch('http://localhost:5000/api/auth/register', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ email, password, name, role })
+                });
+
+                const data = await response.json();
+                if (response.ok) {
+                    showMessage('Registration successful! You are now logged in.', 'success');
+                    currentToken = data.token;
+                    currentUser = data.user;
+                    
+                    document.getElementById('loginSection').classList.add('hidden');
+                    if (role === 'teacher') {
+                        document.getElementById('teacherPanel').classList.remove('hidden');
+                        loadTeacherTests();
+                    } else {
+                        document.getElementById('studentPanel').classList.remove('hidden');
+                        loadStudentTests();
+                    }
+                } else {
+                    showMessage(data.error, 'error');
+                }
+            } catch (error) {
+                showMessage('Registration failed: ' + error.message, 'error');
+            }
+        }
+
+        async function createTest() {
+            const title = document.getElementById('testTitle').value;
+            const description = document.getElementById('testDescription').value;
+            const duration = parseInt(document.getElementById('testDuration').value);
+
+            if (!title || !duration) {
+                showMessage('Please fill required fields', 'error');
+                return;
+            }
+
+            try {
+                const response = await fetch('http://localhost:5000/api/tests', {
+                    method: 'POST',
+                    headers: { 
+                        'Content-Type': 'application/json',
+                        'Authorization': 'Bearer ' + currentToken
+                    },
+                    body: JSON.stringify({ title, description, duration_minutes: duration })
+                });
+
+                const data = await response.json();
+                if (response.ok) {
+                    showMessage('Test created successfully!', 'success');
+                    document.getElementById('testTitle').value = '';
+                    document.getElementById('testDescription').value = '';
+                    document.getElementById('testDuration').value = '30';
+                    loadTeacherTests();
+                } else {
+                    showMessage(data.error, 'error');
+                }
+            } catch (error) {
+                showMessage('Failed to create test: ' + error.message, 'error');
+            }
+        }
+
+        async function loadTeacherTests() {
+            try {
+                const response = await fetch('http://localhost:5000/api/tests', {
+                    headers: { 'Authorization': 'Bearer ' + currentToken }
+                });
+
+                const data = await response.json();
+                if (response.ok) {
+                    const testsHtml = data.tests.map(test => 
+                        `<div class="question">
+                            <h4>${test.title}</h4>
+                            <p>${test.description}</p>
+                            <p>Duration: ${test.duration_minutes} minutes | Total Marks: ${test.total_marks}</p>
+                            <button onclick="addQuestionToTest(${test.id})">Add Question</button>
+                        </div>`
+                    ).join('');
+                    document.getElementById('testsContent').innerHTML = testsHtml || 'No tests created yet.';
+                }
+            } catch (error) {
+                showMessage('Failed to load tests: ' + error.message, 'error');
+            }
+        }
+
+        async function loadStudentTests() {
+            try {
+                const response = await fetch('http://localhost:5000/api/tests', {
+                    headers: { 'Authorization': 'Bearer ' + currentToken }
+                });
+
+                const data = await response.json();
+                if (response.ok) {
+                    const testsHtml = data.tests.map(test => 
+                        `<div class="question">
+                            <h4>${test.title}</h4>
+                            <p>${test.description}</p>
+                            <p>Duration: ${test.duration_minutes} minutes | Total Marks: ${test.total_marks}</p>
+                            <button onclick="startTest(${test.id})">Start Test</button>
+                        </div>`
+                    ).join('');
+                    document.getElementById('studentTestsContent').innerHTML = testsHtml || 'No tests available.';
+                }
+            } catch (error) {
+                showMessage('Failed to load tests: ' + error.message, 'error');
+            }
+        }
+
+        async function addQuestionToTest(testId) {
+            const questionText = prompt('Enter question text:');
+            const optionA = prompt('Enter option A:');
+            const optionB = prompt('Enter option B:');
+            const optionC = prompt('Enter option C:');
+            const optionD = prompt('Enter option D:');
+            const correctAnswer = prompt('Enter correct answer (a, b, c, or d):').toLowerCase();
+            const marks = parseInt(prompt('Enter marks for this question:') || '1');
+
+            if (!questionText || !optionA || !optionB || !optionC || !optionD || !['a', 'b', 'c', 'd'].includes(correctAnswer)) {
+                showMessage('Please provide all question details', 'error');
+                return;
+            }
+
+            try {
+                const response = await fetch(`http://localhost:5000/api/tests/${testId}/questions`, {
+                    method: 'POST',
+                    headers: { 
+                        'Content-Type': 'application/json',
+                        'Authorization': 'Bearer ' + currentToken
+                    },
+                    body: JSON.stringify({
+                        question_text: questionText,
+                        option_a: optionA,
+                        option_b: optionB,
+                        option_c: optionC,
+                        option_d: optionD,
+                        correct_answer: correctAnswer,
+                        marks: marks
+                    })
+                });
+
+                const data = await response.json();
+                if (response.ok) {
+                    showMessage('Question added successfully!', 'success');
+                    loadTeacherTests();
+                } else {
+                    showMessage(data.error, 'error');
+                }
+            } catch (error) {
+                showMessage('Failed to add question: ' + error.message, 'error');
+            }
+        }
+
+        async function startTest(testId) {
+            // This would implement the test taking functionality
+            showMessage('Test functionality would be implemented here with timer and question navigation', 'info');
+        }
+
+        function logout() {
+            currentToken = '';
+            currentUser = null;
+            document.getElementById('loginSection').classList.remove('hidden');
+            document.getElementById('teacherPanel').classList.add('hidden');
+            document.getElementById('studentPanel').classList.add('hidden');
+            showMessage('Logged out successfully', 'info');
+        }
+
+        function showMessage(message, type) {
+            const messagesDiv = document.getElementById('messages');
+            const messageElement = document.createElement('div');
+            messageElement.className = `container ${type}`;
+            messageElement.textContent = message;
+            messagesDiv.appendChild(messageElement);
+            
+            setTimeout(() => {
+                messagesDiv.removeChild(messageElement);
+            }, 5000);
+        }
+    </script>
+</body>
+</html>
