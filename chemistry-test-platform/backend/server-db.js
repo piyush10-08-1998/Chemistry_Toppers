@@ -1,0 +1,611 @@
+const express = require('express');
+const cors = require('cors');
+const helmet = require('helmet');
+const rateLimit = require('express-rate-limit');
+const jwt = require('jsonwebtoken');
+const bcrypt = require('bcryptjs');
+const { Pool } = require('pg');
+require('dotenv').config();
+
+const { validateEmail } = require('./src/utils/emailValidator');
+
+const app = express();
+const PORT = process.env.PORT || 5001;
+
+// PostgreSQL connection pool
+const pool = new Pool({
+  host: process.env.DB_HOST || 'localhost',
+  port: process.env.DB_PORT || 5432,
+  database: process.env.DB_NAME || 'chemistry_test_db',
+  user: process.env.DB_USER,
+  password: process.env.DB_PASSWORD
+});
+
+// Test database connection
+pool.query('SELECT NOW()', (err, res) => {
+  if (err) {
+    console.error('❌ Database connection error:', err);
+  } else {
+    console.log('✅ Database connected successfully at', res.rows[0].now);
+  }
+});
+
+const limiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 100,
+  message: 'Too many requests from this IP, please try again later.'
+});
+
+app.use(helmet());
+app.use(cors({
+  origin: process.env.FRONTEND_URL || 'http://localhost:5173',
+  credentials: true
+}));
+app.use(limiter);
+app.use(express.json({ limit: '10mb' }));
+app.use(express.urlencoded({ extended: true }));
+
+// JWT utilities
+const generateToken = (user) => {
+  return jwt.sign(
+    { id: user.id, email: user.email, role: user.role },
+    process.env.JWT_SECRET || 'fallback-secret-key',
+    { expiresIn: process.env.JWT_EXPIRES_IN || '7d' }
+  );
+};
+
+const authenticateToken = (req, res, next) => {
+  const authHeader = req.headers.authorization;
+  const token = authHeader && authHeader.split(' ')[1];
+
+  if (!token) {
+    return res.status(401).json({ error: 'Access token required' });
+  }
+
+  try {
+    const decoded = jwt.verify(token, process.env.JWT_SECRET || 'fallback-secret-key');
+    req.user = decoded;
+    next();
+  } catch (error) {
+    return res.status(403).json({ error: 'Invalid or expired token' });
+  }
+};
+
+const requireRole = (roles) => {
+  return (req, res, next) => {
+    if (!req.user) {
+      return res.status(401).json({ error: 'Authentication required' });
+    }
+    if (!roles.includes(req.user.role)) {
+      return res.status(403).json({ error: 'Insufficient permissions' });
+    }
+    next();
+  };
+};
+
+// Routes
+app.get('/api/health', async (req, res) => {
+  try {
+    const result = await pool.query('SELECT COUNT(*) as user_count FROM users');
+    res.json({
+      status: 'OK',
+      message: 'Chemistry Test Platform API is running',
+      database: 'Connected',
+      users: result.rows[0].user_count
+    });
+  } catch (error) {
+    res.json({
+      status: 'OK',
+      message: 'Chemistry Test Platform API is running',
+      database: 'Error'
+    });
+  }
+});
+
+// Auth routes
+app.post('/api/auth/login', async (req, res) => {
+  try {
+    const { email, password } = req.body;
+
+    if (!email || !password) {
+      return res.status(400).json({ error: 'Email and password are required' });
+    }
+
+    const result = await pool.query('SELECT * FROM users WHERE email = $1', [email.toLowerCase().trim()]);
+
+    if (result.rows.length === 0) {
+      return res.status(400).json({ error: 'Invalid credentials' });
+    }
+
+    const user = result.rows[0];
+    const isPasswordValid = await bcrypt.compare(password, user.password);
+
+    if (!isPasswordValid) {
+      return res.status(400).json({ error: 'Invalid credentials' });
+    }
+
+    const token = generateToken(user);
+    res.json({
+      message: 'Login successful',
+      user: { id: user.id, email: user.email, name: user.name, role: user.role },
+      token
+    });
+  } catch (error) {
+    console.error('Login error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+app.post('/api/auth/register', async (req, res) => {
+  try {
+    const { email, password, name, role } = req.body;
+
+    if (!email || !password || !name || !role) {
+      return res.status(400).json({ error: 'All fields are required' });
+    }
+
+    if (!['teacher', 'student'].includes(role)) {
+      return res.status(400).json({ error: 'Role must be either teacher or student' });
+    }
+
+    // Validate email with our validator
+    const emailValidation = validateEmail(email, {
+      allowAnyDomain: true, // Set to false to only allow specific providers
+      requireEducationalEmail: false // Set to true to require .edu emails for students
+    });
+
+    if (!emailValidation.valid) {
+      return res.status(400).json({ error: emailValidation.error });
+    }
+
+    const cleanEmail = email.toLowerCase().trim();
+
+    // Check if user already exists
+    const existingUser = await pool.query('SELECT * FROM users WHERE email = $1', [cleanEmail]);
+    if (existingUser.rows.length > 0) {
+      return res.status(400).json({ error: 'User with this email already exists' });
+    }
+
+    const hashedPassword = await bcrypt.hash(password, 12);
+
+    const result = await pool.query(
+      'INSERT INTO users (email, password, name, role) VALUES ($1, $2, $3, $4) RETURNING id, email, name, role',
+      [cleanEmail, hashedPassword, name, role]
+    );
+
+    const newUser = result.rows[0];
+    const token = generateToken(newUser);
+
+    res.status(201).json({
+      message: 'User created successfully',
+      user: newUser,
+      token
+    });
+  } catch (error) {
+    console.error('Registration error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+app.get('/api/auth/profile', authenticateToken, async (req, res) => {
+  try {
+    const result = await pool.query('SELECT id, email, name, role, created_at FROM users WHERE id = $1', [req.user.id]);
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+
+    res.json({ user: result.rows[0] });
+  } catch (error) {
+    console.error('Profile error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// Test routes
+app.post('/api/tests', authenticateToken, requireRole(['teacher']), async (req, res) => {
+  try {
+    const { title, description, duration_minutes } = req.body;
+
+    if (!title || !duration_minutes) {
+      return res.status(400).json({ error: 'Title and duration are required' });
+    }
+
+    const result = await pool.query(
+      'INSERT INTO tests (title, description, duration_minutes, created_by) VALUES ($1, $2, $3, $4) RETURNING *',
+      [title, description || '', duration_minutes, req.user.id]
+    );
+
+    res.status(201).json({ test: result.rows[0] });
+  } catch (error) {
+    console.error('Create test error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+app.get('/api/tests', authenticateToken, async (req, res) => {
+  try {
+    let result;
+
+    if (req.user.role === 'teacher') {
+      result = await pool.query('SELECT * FROM tests WHERE created_by = $1 ORDER BY created_at DESC', [req.user.id]);
+    } else {
+      result = await pool.query(
+        'SELECT id, title, description, duration_minutes, total_marks FROM tests WHERE is_active = true ORDER BY created_at DESC'
+      );
+    }
+
+    res.json({ tests: result.rows });
+  } catch (error) {
+    console.error('Get tests error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+app.get('/api/tests/:id', authenticateToken, async (req, res) => {
+  try {
+    const testId = parseInt(req.params.id);
+
+    const testResult = await pool.query('SELECT * FROM tests WHERE id = $1', [testId]);
+
+    if (testResult.rows.length === 0) {
+      return res.status(404).json({ error: 'Test not found' });
+    }
+
+    const test = testResult.rows[0];
+
+    if (req.user.role === 'teacher' && test.created_by !== req.user.id) {
+      return res.status(403).json({ error: 'Access denied' });
+    }
+
+    let questionsResult;
+    if (req.user.role === 'student') {
+      questionsResult = await pool.query(
+        'SELECT id, question_text, option_a, option_b, option_c, option_d, marks FROM questions WHERE test_id = $1 ORDER BY question_order',
+        [testId]
+      );
+    } else {
+      questionsResult = await pool.query(
+        'SELECT * FROM questions WHERE test_id = $1 ORDER BY question_order',
+        [testId]
+      );
+    }
+
+    res.json({ test, questions: questionsResult.rows });
+  } catch (error) {
+    console.error('Get test error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+app.post('/api/tests/:id/questions', authenticateToken, requireRole(['teacher']), async (req, res) => {
+  try {
+    const testId = parseInt(req.params.id);
+
+    const testResult = await pool.query('SELECT * FROM tests WHERE id = $1', [testId]);
+
+    if (testResult.rows.length === 0) {
+      return res.status(404).json({ error: 'Test not found' });
+    }
+
+    const test = testResult.rows[0];
+    if (test.created_by !== req.user.id) {
+      return res.status(403).json({ error: 'Access denied' });
+    }
+
+    const { question_text, option_a, option_b, option_c, option_d, correct_answer, marks = 1 } = req.body;
+
+    if (!question_text || !option_a || !option_b || !option_c || !option_d || !correct_answer) {
+      return res.status(400).json({ error: 'All question fields are required' });
+    }
+
+    if (!['a', 'b', 'c', 'd'].includes(correct_answer)) {
+      return res.status(400).json({ error: 'Correct answer must be a, b, c, or d' });
+    }
+
+    const orderResult = await pool.query('SELECT COUNT(*) as count FROM questions WHERE test_id = $1', [testId]);
+    const questionOrder = parseInt(orderResult.rows[0].count) + 1;
+
+    const questionResult = await pool.query(
+      'INSERT INTO questions (test_id, question_text, option_a, option_b, option_c, option_d, correct_answer, marks, question_order) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING *',
+      [testId, question_text, option_a, option_b, option_c, option_d, correct_answer, marks, questionOrder]
+    );
+
+    await pool.query('UPDATE tests SET total_marks = total_marks + $1 WHERE id = $2', [marks, testId]);
+
+    res.status(201).json({ question: questionResult.rows[0] });
+  } catch (error) {
+    console.error('Add question error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// Attempt routes (for students taking tests)
+app.post('/api/attempts/start/:testId', authenticateToken, requireRole(['student']), async (req, res) => {
+  try {
+    const testId = parseInt(req.params.testId);
+
+    const testResult = await pool.query('SELECT * FROM tests WHERE id = $1', [testId]);
+
+    if (testResult.rows.length === 0) {
+      return res.status(404).json({ error: 'Test not found' });
+    }
+
+    const test = testResult.rows[0];
+
+    // Check if student already has an incomplete attempt
+    const existingAttempt = await pool.query(
+      'SELECT * FROM test_attempts WHERE test_id = $1 AND student_id = $2 AND is_submitted = false',
+      [testId, req.user.id]
+    );
+
+    if (existingAttempt.rows.length > 0) {
+      return res.json({ attempt: existingAttempt.rows[0] });
+    }
+
+    // Create new attempt
+    const attemptResult = await pool.query(
+      'INSERT INTO test_attempts (test_id, student_id, total_marks) VALUES ($1, $2, $3) RETURNING *',
+      [testId, req.user.id, test.total_marks]
+    );
+
+    res.status(201).json({ attempt: attemptResult.rows[0] });
+  } catch (error) {
+    console.error('Start test error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+app.post('/api/attempts/answer', authenticateToken, requireRole(['student']), async (req, res) => {
+  try {
+    const { attemptId, questionId, selectedAnswer } = req.body;
+
+    if (!attemptId || !questionId || !selectedAnswer) {
+      return res.status(400).json({ error: 'All fields are required' });
+    }
+
+    const attemptResult = await pool.query('SELECT * FROM test_attempts WHERE id = $1', [attemptId]);
+
+    if (attemptResult.rows.length === 0) {
+      return res.status(404).json({ error: 'Attempt not found' });
+    }
+
+    const attempt = attemptResult.rows[0];
+
+    if (attempt.student_id !== req.user.id) {
+      return res.status(403).json({ error: 'Access denied' });
+    }
+
+    if (attempt.is_submitted) {
+      return res.status(400).json({ error: 'Test already submitted' });
+    }
+
+    // Check if answer already exists
+    const existingAnswer = await pool.query(
+      'SELECT * FROM student_answers WHERE attempt_id = $1 AND question_id = $2',
+      [attemptId, questionId]
+    );
+
+    if (existingAnswer.rows.length > 0) {
+      // Update existing answer
+      await pool.query(
+        'UPDATE student_answers SET selected_answer = $1 WHERE attempt_id = $2 AND question_id = $3',
+        [selectedAnswer, attemptId, questionId]
+      );
+    } else {
+      // Insert new answer
+      await pool.query(
+        'INSERT INTO student_answers (attempt_id, question_id, selected_answer) VALUES ($1, $2, $3)',
+        [attemptId, questionId, selectedAnswer]
+      );
+    }
+
+    res.json({ message: 'Answer saved' });
+  } catch (error) {
+    console.error('Save answer error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+app.post('/api/attempts/submit', authenticateToken, requireRole(['student']), async (req, res) => {
+  try {
+    const { attemptId } = req.body;
+
+    if (!attemptId) {
+      return res.status(400).json({ error: 'Attempt ID is required' });
+    }
+
+    const attemptResult = await pool.query('SELECT * FROM test_attempts WHERE id = $1', [attemptId]);
+
+    if (attemptResult.rows.length === 0) {
+      return res.status(404).json({ error: 'Attempt not found' });
+    }
+
+    const attempt = attemptResult.rows[0];
+
+    if (attempt.student_id !== req.user.id) {
+      return res.status(403).json({ error: 'Access denied' });
+    }
+
+    if (attempt.is_submitted) {
+      return res.status(400).json({ error: 'Test already submitted' });
+    }
+
+    // Calculate score
+    const answersResult = await pool.query(`
+      SELECT sa.selected_answer, q.correct_answer, q.marks
+      FROM student_answers sa
+      JOIN questions q ON sa.question_id = q.id
+      WHERE sa.attempt_id = $1
+    `, [attemptId]);
+
+    let score = 0;
+    answersResult.rows.forEach(answer => {
+      if (answer.selected_answer === answer.correct_answer) {
+        score += answer.marks;
+      }
+    });
+
+    // Update attempt
+    const endTime = new Date();
+    const startTime = new Date(attempt.start_time);
+    const timeTaken = Math.round((endTime - startTime) / 60000);
+
+    await pool.query(
+      'UPDATE test_attempts SET is_submitted = true, end_time = $1, score = $2, time_taken_minutes = $3 WHERE id = $4',
+      [endTime, score, timeTaken, attemptId]
+    );
+
+    res.json({
+      message: 'Test submitted successfully',
+      score,
+      total_marks: attempt.total_marks
+    });
+  } catch (error) {
+    console.error('Submit test error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+app.get('/api/attempts/results/:testId', authenticateToken, requireRole(['student']), async (req, res) => {
+  try {
+    const testId = parseInt(req.params.testId);
+
+    const attemptResult = await pool.query(
+      'SELECT * FROM test_attempts WHERE test_id = $1 AND student_id = $2 AND is_submitted = true',
+      [testId, req.user.id]
+    );
+
+    if (attemptResult.rows.length === 0) {
+      return res.status(404).json({ error: 'No submitted attempt found' });
+    }
+
+    const testResult = await pool.query('SELECT title, description FROM tests WHERE id = $1', [testId]);
+
+    res.json({
+      attempt: attemptResult.rows[0],
+      test: testResult.rows[0]
+    });
+  } catch (error) {
+    console.error('Get results error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// Analytics routes (for teachers)
+app.get('/api/analytics/students', authenticateToken, requireRole(['teacher']), async (req, res) => {
+  try {
+    const studentsResult = await pool.query(`
+      SELECT
+        u.id,
+        u.name,
+        u.email,
+        u.created_at,
+        COUNT(DISTINCT ta.id) as tests_taken,
+        COUNT(DISTINCT CASE WHEN ta.is_submitted = true THEN ta.id END) as tests_completed,
+        COALESCE(AVG(CASE WHEN ta.is_submitted = true THEN (ta.score::numeric / NULLIF(ta.total_marks, 0) * 100) END), 0) as average_percentage
+      FROM users u
+      LEFT JOIN test_attempts ta ON u.id = ta.student_id
+      WHERE u.role = 'student'
+      GROUP BY u.id, u.name, u.email, u.created_at
+      ORDER BY u.created_at DESC
+    `);
+
+    res.json({ students: studentsResult.rows });
+  } catch (error) {
+    console.error('Get students error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+app.get('/api/analytics/test-results/:testId', authenticateToken, requireRole(['teacher']), async (req, res) => {
+  try {
+    const testId = parseInt(req.params.testId);
+
+    // Verify teacher owns this test
+    const testResult = await pool.query('SELECT * FROM tests WHERE id = $1 AND created_by = $2', [testId, req.user.id]);
+
+    if (testResult.rows.length === 0) {
+      return res.status(404).json({ error: 'Test not found or access denied' });
+    }
+
+    const resultsQuery = await pool.query(`
+      SELECT
+        u.id as student_id,
+        u.name as student_name,
+        u.email as student_email,
+        ta.score,
+        ta.total_marks,
+        ROUND((ta.score::numeric / NULLIF(ta.total_marks, 0) * 100), 2) as percentage,
+        ta.time_taken_minutes,
+        ta.start_time,
+        ta.end_time,
+        ta.is_submitted
+      FROM test_attempts ta
+      JOIN users u ON ta.student_id = u.id
+      WHERE ta.test_id = $1 AND ta.is_submitted = true
+      ORDER BY ta.end_time DESC
+    `, [testId]);
+
+    res.json({
+      test: testResult.rows[0],
+      results: resultsQuery.rows
+    });
+  } catch (error) {
+    console.error('Get test results error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+app.get('/api/analytics/student/:studentId', authenticateToken, requireRole(['teacher']), async (req, res) => {
+  try {
+    const studentId = parseInt(req.params.studentId);
+
+    const studentResult = await pool.query(
+      'SELECT id, name, email, created_at FROM users WHERE id = $1 AND role = $2',
+      [studentId, 'student']
+    );
+
+    if (studentResult.rows.length === 0) {
+      return res.status(404).json({ error: 'Student not found' });
+    }
+
+    const attemptsResult = await pool.query(`
+      SELECT
+        t.id as test_id,
+        t.title as test_name,
+        ta.score,
+        ta.total_marks,
+        ROUND((ta.score::numeric / NULLIF(ta.total_marks, 0) * 100), 2) as percentage,
+        ta.time_taken_minutes,
+        ta.end_time
+      FROM test_attempts ta
+      JOIN tests t ON ta.test_id = t.id
+      WHERE ta.student_id = $1 AND ta.is_submitted = true
+      ORDER BY ta.end_time DESC
+    `, [studentId]);
+
+    res.json({
+      student: studentResult.rows[0],
+      attempts: attemptsResult.rows
+    });
+  } catch (error) {
+    console.error('Get student details error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// Graceful shutdown
+process.on('SIGTERM', () => {
+  console.log('SIGTERM signal received: closing HTTP server');
+  pool.end(() => {
+    console.log('Database pool closed');
+  });
+});
+
+app.listen(PORT, () => {
+  console.log(`🚀 Chemistry Test Platform API running on port ${PORT}`);
+  console.log(`📚 Ready to serve chemistry tests!`);
+  console.log(`🔐 Default login: teacher@chemistry.com / admin123`);
+  console.log(`📧 Email validation: Enabled (blocking disposable emails)`);
+});
