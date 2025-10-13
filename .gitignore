@@ -26,3 +26,4 @@ logs/
 
 # Local settings
 .claude/settings.local.json
+chemistry-test-platform/backend/.env
