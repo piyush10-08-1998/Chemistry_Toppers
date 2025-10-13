@@ -7,7 +7,6 @@ export default function TeacherDashboard() {
   const [tests, setTests] = useState<Test[]>([]);
   const [user, setUser] = useState<User | null>(null);
   const [showCreateTest, setShowCreateTest] = useState(false);
-  const [selectedTest, setSelectedTest] = useState<Test | null>(null);
   const [loading, setLoading] = useState(false);
   const navigate = useNavigate();
 
