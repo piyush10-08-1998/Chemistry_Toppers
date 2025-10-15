@@ -7,6 +7,9 @@ CREATE TABLE users (
   password VARCHAR(255) NOT NULL,
   name VARCHAR(255) NOT NULL,
   role VARCHAR(20) NOT NULL CHECK (role IN ('teacher', 'student')),
+  is_email_verified BOOLEAN DEFAULT false,
+  email_verification_token VARCHAR(255),
+  email_verification_expires TIMESTAMP,
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
@@ -36,6 +39,11 @@ CREATE TABLE questions (
   correct_answer CHAR(1) NOT NULL CHECK (correct_answer IN ('a', 'b', 'c', 'd')),
   marks INTEGER DEFAULT 1,
   question_order INTEGER DEFAULT 0,
+  image_url VARCHAR(500),
+  option_a_image VARCHAR(500),
+  option_b_image VARCHAR(500),
+  option_c_image VARCHAR(500),
+  option_d_image VARCHAR(500),
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -75,7 +83,7 @@ CREATE INDEX idx_test_attempts_student ON test_attempts(student_id);
 CREATE INDEX idx_test_attempts_test ON test_attempts(test_id);
 CREATE INDEX idx_student_answers_attempt ON student_answers(attempt_id);
 
--- Insert default admin/teacher user
-INSERT INTO users (email, password, name, role) VALUES 
-('teacher@chemistry.com', '$2a$12$LQv3c1yqBWVHxkd0LHAkCOYz6TtxMQJqhN8/LewGjgOZ8BgvCtGQG', 'Chemistry Teacher', 'teacher');
+-- Insert default admin/teacher user (email already verified)
+INSERT INTO users (email, password, name, role, is_email_verified) VALUES
+('teacher@chemistry.com', '$2a$12$LQv3c1yqBWVHxkd0LHAkCOYz6TtxMQJqhN8/LewGjgOZ8BgvCtGQG', 'Chemistry Teacher', 'teacher', true);
 -- Password is: admin123
