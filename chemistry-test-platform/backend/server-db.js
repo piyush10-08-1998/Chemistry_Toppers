@@ -144,8 +144,9 @@ app.post('/api/auth/login', async (req, res) => {
       return res.status(400).json({ error: 'Invalid credentials' });
     }
 
-    // Check if email is verified
-    if (!user.is_email_verified) {
+    // Check if email is verified (skip for admin/teacher accounts created via env)
+    const isAdminEmail = email.toLowerCase().trim() === (process.env.ADMIN_EMAIL || '').toLowerCase();
+    if (!user.is_email_verified && !isAdminEmail) {
       return res.status(403).json({
         error: 'Please verify your email before logging in. Check your inbox for the verification link.',
         requiresVerification: true
