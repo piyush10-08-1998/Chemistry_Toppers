@@ -5,9 +5,15 @@ const rateLimit = require('express-rate-limit');
 const jwt = require('jsonwebtoken');
 const bcrypt = require('bcryptjs');
 const { Pool } = require('pg');
+const multer = require('multer');
+const path = require('path');
+const fs = require('fs');
 require('dotenv').config();
 
 const { validateEmail } = require('./src/utils/emailValidator');
+const questionExtractor = require('./src/services/questionExtractor');
+const { sendVerificationEmail } = require('./src/services/emailService');
+const crypto = require('crypto');
 
 const app = express();
 const PORT = process.env.PORT || 5001;
@@ -36,9 +42,23 @@ const limiter = rateLimit({
   message: 'Too many requests from this IP, please try again later.'
 });
 
-app.use(helmet());
+app.use(helmet({
+  contentSecurityPolicy: {
+    directives: {
+      defaultSrc: ["'self'"],
+      imgSrc: ["'self'", "data:", "http://localhost:5001", "http://localhost:5174", "http://localhost:5173"],
+      scriptSrc: ["'self'", "'unsafe-inline'"],
+      styleSrc: ["'self'", "'unsafe-inline'"],
+    }
+  },
+  crossOriginResourcePolicy: { policy: "cross-origin" }
+}));
 app.use(cors({
-  origin: process.env.FRONTEND_URL || 'http://localhost:5173',
+  origin: [
+    'http://localhost:5173',
+    'http://localhost:5174',
+    process.env.FRONTEND_URL
+  ].filter(Boolean),
   credentials: true
 }));
 app.use(limiter);
@@ -124,6 +144,14 @@ app.post('/api/auth/login', async (req, res) => {
       return res.status(400).json({ error: 'Invalid credentials' });
     }
 
+    // Check if email is verified
+    if (!user.is_email_verified) {
+      return res.status(403).json({
+        error: 'Please verify your email before logging in. Check your inbox for the verification link.',
+        requiresVerification: true
+      });
+    }
+
     const token = generateToken(user);
     res.json({
       message: 'Login successful',
@@ -168,18 +196,29 @@ app.post('/api/auth/register', async (req, res) => {
 
     const hashedPassword = await bcrypt.hash(password, 12);
 
+    // Generate email verification token
+    const verificationToken = crypto.randomBytes(32).toString('hex');
+    const verificationExpires = new Date(Date.now() + 24 * 60 * 60 * 1000); // 24 hours
+
     const result = await pool.query(
-      'INSERT INTO users (email, password, name, role) VALUES ($1, $2, $3, $4) RETURNING id, email, name, role',
-      [cleanEmail, hashedPassword, name, role]
+      'INSERT INTO users (email, password, name, role, email_verification_token, email_verification_expires) VALUES ($1, $2, $3, $4, $5, $6) RETURNING id, email, name, role',
+      [cleanEmail, hashedPassword, name, role, verificationToken, verificationExpires]
     );
 
     const newUser = result.rows[0];
-    const token = generateToken(newUser);
+
+    // Send verification email
+    const emailResult = await sendVerificationEmail(cleanEmail, verificationToken, name);
+
+    if (!emailResult.success) {
+      console.error('Failed to send verification email:', emailResult.error);
+      // Don't fail registration if email fails, just log it
+    }
 
     res.status(201).json({
-      message: 'User created successfully',
+      message: 'Registration successful! Please check your email to verify your account.',
       user: newUser,
-      token
+      requiresVerification: true
     });
   } catch (error) {
     console.error('Registration error:', error);
@@ -198,6 +237,51 @@ app.get('/api/auth/profile', authenticateToken, async (req, res) => {
     res.json({ user: result.rows[0] });
   } catch (error) {
     console.error('Profile error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// Email verification endpoint
+app.get('/api/auth/verify-email/:token', async (req, res) => {
+  try {
+    const { token } = req.params;
+
+    if (!token) {
+      return res.status(400).json({ error: 'Verification token is required' });
+    }
+
+    const result = await pool.query(
+      'SELECT * FROM users WHERE email_verification_token = $1',
+      [token]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(400).json({ error: 'Invalid verification token' });
+    }
+
+    const user = result.rows[0];
+
+    // Check if token has expired
+    if (new Date() > new Date(user.email_verification_expires)) {
+      return res.status(400).json({ error: 'Verification token has expired. Please register again.' });
+    }
+
+    // Check if already verified
+    if (user.is_email_verified) {
+      return res.status(200).json({ message: 'Email already verified. You can now login.' });
+    }
+
+    // Verify the email
+    await pool.query(
+      'UPDATE users SET is_email_verified = true, email_verification_token = NULL, email_verification_expires = NULL WHERE id = $1',
+      [user.id]
+    );
+
+    console.log(`✅ Email verified for user: ${user.email}`);
+
+    res.json({ message: 'Email verified successfully! You can now login.' });
+  } catch (error) {
+    console.error('Email verification error:', error);
     res.status(500).json({ error: 'Internal server error' });
   }
 });
@@ -261,7 +345,7 @@ app.get('/api/tests/:id', authenticateToken, async (req, res) => {
     let questionsResult;
     if (req.user.role === 'student') {
       questionsResult = await pool.query(
-        'SELECT id, question_text, option_a, option_b, option_c, option_d, marks FROM questions WHERE test_id = $1 ORDER BY question_order',
+        'SELECT id, question_text, option_a, option_b, option_c, option_d, marks, image_url, option_a_image, option_b_image, option_c_image, option_d_image FROM questions WHERE test_id = $1 ORDER BY question_order',
         [testId]
       );
     } else {
@@ -293,7 +377,11 @@ app.post('/api/tests/:id/questions', authenticateToken, requireRole(['teacher'])
       return res.status(403).json({ error: 'Access denied' });
     }
 
-    const { question_text, option_a, option_b, option_c, option_d, correct_answer, marks = 1 } = req.body;
+    const {
+      question_text, option_a, option_b, option_c, option_d,
+      correct_answer, marks = 1, image_url,
+      option_a_image, option_b_image, option_c_image, option_d_image
+    } = req.body;
 
     if (!question_text || !option_a || !option_b || !option_c || !option_d || !correct_answer) {
       return res.status(400).json({ error: 'All question fields are required' });
@@ -307,8 +395,8 @@ app.post('/api/tests/:id/questions', authenticateToken, requireRole(['teacher'])
     const questionOrder = parseInt(orderResult.rows[0].count) + 1;
 
     const questionResult = await pool.query(
-      'INSERT INTO questions (test_id, question_text, option_a, option_b, option_c, option_d, correct_answer, marks, question_order) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING *',
-      [testId, question_text, option_a, option_b, option_c, option_d, correct_answer, marks, questionOrder]
+      'INSERT INTO questions (test_id, question_text, option_a, option_b, option_c, option_d, correct_answer, marks, question_order, image_url, option_a_image, option_b_image, option_c_image, option_d_image) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14) RETURNING *',
+      [testId, question_text, option_a, option_b, option_c, option_d, correct_answer, marks, questionOrder, image_url || null, option_a_image || null, option_b_image || null, option_c_image || null, option_d_image || null]
     );
 
     await pool.query('UPDATE tests SET total_marks = total_marks + $1 WHERE id = $2', [marks, testId]);
@@ -316,6 +404,41 @@ app.post('/api/tests/:id/questions', authenticateToken, requireRole(['teacher'])
     res.status(201).json({ question: questionResult.rows[0] });
   } catch (error) {
     console.error('Add question error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// Delete a question
+app.delete('/api/questions/:id', authenticateToken, requireRole(['teacher']), async (req, res) => {
+  try {
+    const questionId = parseInt(req.params.id);
+
+    // Get the question to verify ownership and get marks
+    const questionResult = await pool.query(
+      'SELECT q.*, t.created_by FROM questions q JOIN tests t ON q.test_id = t.id WHERE q.id = $1',
+      [questionId]
+    );
+
+    if (questionResult.rows.length === 0) {
+      return res.status(404).json({ error: 'Question not found' });
+    }
+
+    const question = questionResult.rows[0];
+
+    // Verify teacher owns the test
+    if (question.created_by !== req.user.id) {
+      return res.status(403).json({ error: 'Access denied' });
+    }
+
+    // Delete the question
+    await pool.query('DELETE FROM questions WHERE id = $1', [questionId]);
+
+    // Update test total marks
+    await pool.query('UPDATE tests SET total_marks = total_marks - $1 WHERE id = $2', [question.marks, question.test_id]);
+
+    res.json({ message: 'Question deleted successfully' });
+  } catch (error) {
+    console.error('Delete question error:', error);
     res.status(500).json({ error: 'Internal server error' });
   }
 });
@@ -591,6 +714,204 @@ app.get('/api/analytics/student/:studentId', authenticateToken, requireRole(['te
     });
   } catch (error) {
     console.error('Get student details error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// Question extraction from PDF/Images
+// Configure multer for file uploads
+const uploadDir = path.join(__dirname, 'uploads');
+const questionImagesDir = path.join(__dirname, 'question-images');
+
+if (!fs.existsSync(uploadDir)) {
+  fs.mkdirSync(uploadDir, { recursive: true });
+}
+if (!fs.existsSync(questionImagesDir)) {
+  fs.mkdirSync(questionImagesDir, { recursive: true });
+}
+
+// Serve question images statically
+app.use('/question-images', express.static(questionImagesDir));
+
+const storage = multer.diskStorage({
+  destination: (req, file, cb) => {
+    cb(null, uploadDir);
+  },
+  filename: (req, file, cb) => {
+    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
+    cb(null, 'upload-' + uniqueSuffix + path.extname(file.originalname));
+  }
+});
+
+const upload = multer({
+  storage: storage,
+  limits: { fileSize: 10 * 1024 * 1024 }, // 10MB limit
+  fileFilter: (req, file, cb) => {
+    const allowedTypes = /jpeg|jpg|png|pdf|gif|webp/;
+    const extname = allowedTypes.test(path.extname(file.originalname).toLowerCase());
+    const mimetype = allowedTypes.test(file.mimetype);
+
+    if (mimetype && extname) {
+      return cb(null, true);
+    } else {
+      cb(new Error('Only PDF and image files (JPEG, PNG, GIF, WEBP) are allowed'));
+    }
+  }
+});
+
+// Extract questions from uploaded file
+app.post('/api/questions/extract', authenticateToken, requireRole(['teacher']), upload.single('file'), async (req, res) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({ error: 'No file uploaded' });
+    }
+
+    console.log(`📄 Extracting questions from: ${req.file.originalname}`);
+
+    // Extract questions using AI
+    const result = await questionExtractor.extract(req.file.path, req.file.mimetype);
+
+    if (!result.success) {
+      // Clean up uploaded file on error
+      fs.unlinkSync(req.file.path);
+      return res.status(400).json({ error: result.error });
+    }
+
+    // Save image permanently for image files (not PDFs)
+    let imageUrl = null;
+    if (req.file.mimetype.startsWith('image/')) {
+      const permanentFilename = `question-${Date.now()}-${Math.round(Math.random() * 1E9)}${path.extname(req.file.originalname)}`;
+      const permanentPath = path.join(questionImagesDir, permanentFilename);
+
+      // Copy file to permanent location
+      fs.copyFileSync(req.file.path, permanentPath);
+
+      // Generate URL (relative to backend URL)
+      imageUrl = `/question-images/${permanentFilename}`;
+
+      console.log(`🖼️  Saved question image: ${imageUrl}`);
+    }
+
+    // Clean up temporary uploaded file
+    fs.unlinkSync(req.file.path);
+
+    // Attach image URL to all extracted questions
+    const questionsWithImage = result.questions.map(q => ({
+      ...q,
+      image_url: imageUrl
+    }));
+
+    console.log(`✅ Extracted ${result.count} questions from ${req.file.originalname}`);
+
+    res.json({
+      message: `Successfully extracted ${result.count} questions`,
+      questions: questionsWithImage,
+      count: result.count,
+      image_url: imageUrl
+    });
+  } catch (error) {
+    console.error('Question extraction error:', error);
+
+    // Clean up file if it exists
+    if (req.file && fs.existsSync(req.file.path)) {
+      fs.unlinkSync(req.file.path);
+    }
+
+    res.status(500).json({ error: 'Failed to extract questions. Please try again.' });
+  }
+});
+
+// Upload image for a question (standalone endpoint for manual questions)
+app.post('/api/questions/upload-image', authenticateToken, requireRole(['teacher']), upload.single('image'), async (req, res) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({ error: 'No image uploaded' });
+    }
+
+    // Only accept images, not PDFs
+    if (!req.file.mimetype.startsWith('image/')) {
+      fs.unlinkSync(req.file.path);
+      return res.status(400).json({ error: 'Only image files are allowed' });
+    }
+
+    const permanentFilename = `question-${Date.now()}-${Math.round(Math.random() * 1E9)}${path.extname(req.file.originalname)}`;
+    const permanentPath = path.join(questionImagesDir, permanentFilename);
+
+    // Move file to permanent location
+    fs.copyFileSync(req.file.path, permanentPath);
+    fs.unlinkSync(req.file.path);
+
+    // Generate URL
+    const imageUrl = `/question-images/${permanentFilename}`;
+
+    console.log(`🖼️  Uploaded question image: ${imageUrl}`);
+
+    res.json({
+      message: 'Image uploaded successfully',
+      image_url: imageUrl
+    });
+  } catch (error) {
+    console.error('Image upload error:', error);
+
+    // Clean up file if it exists
+    if (req.file && fs.existsSync(req.file.path)) {
+      fs.unlinkSync(req.file.path);
+    }
+
+    res.status(500).json({ error: 'Failed to upload image. Please try again.' });
+  }
+});
+
+// Bulk add extracted questions to a test
+app.post('/api/tests/:id/questions/bulk', authenticateToken, requireRole(['teacher']), async (req, res) => {
+  try {
+    const testId = parseInt(req.params.id);
+    const { questions } = req.body;
+
+    if (!questions || !Array.isArray(questions) || questions.length === 0) {
+      return res.status(400).json({ error: 'Questions array is required' });
+    }
+
+    // Verify test exists and belongs to teacher
+    const testResult = await pool.query('SELECT * FROM tests WHERE id = $1 AND created_by = $2', [testId, req.user.id]);
+
+    if (testResult.rows.length === 0) {
+      return res.status(404).json({ error: 'Test not found or access denied' });
+    }
+
+    // Get current question count
+    const countResult = await pool.query('SELECT COUNT(*) as count FROM questions WHERE test_id = $1', [testId]);
+    let questionOrder = parseInt(countResult.rows[0].count);
+
+    const addedQuestions = [];
+    let totalMarks = 0;
+
+    // Add each question
+    for (const q of questions) {
+      questionOrder++;
+
+      // Default correct_answer to 'a' if not provided (teacher can edit later)
+      const correctAnswer = q.correct_answer || 'a';
+
+      const questionResult = await pool.query(
+        'INSERT INTO questions (test_id, question_text, option_a, option_b, option_c, option_d, correct_answer, marks, question_order, image_url, option_a_image, option_b_image, option_c_image, option_d_image) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14) RETURNING *',
+        [testId, q.question_text, q.option_a, q.option_b, q.option_c, q.option_d, correctAnswer, q.marks || 1, questionOrder, q.image_url || null, q.option_a_image || null, q.option_b_image || null, q.option_c_image || null, q.option_d_image || null]
+      );
+
+      addedQuestions.push(questionResult.rows[0]);
+      totalMarks += q.marks || 1;
+    }
+
+    // Update test total marks
+    await pool.query('UPDATE tests SET total_marks = total_marks + $1 WHERE id = $2', [totalMarks, testId]);
+
+    res.status(201).json({
+      message: `Successfully added ${addedQuestions.length} questions to test`,
+      questions: addedQuestions,
+      count: addedQuestions.length
+    });
+  } catch (error) {
+    console.error('Bulk add questions error:', error);
     res.status(500).json({ error: 'Internal server error' });
   }
 });

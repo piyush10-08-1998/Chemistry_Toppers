@@ -7,7 +7,7 @@ const bcrypt = require('bcryptjs');
 require('dotenv').config();
 
 const app = express();
-const PORT = process.env.PORT || 5000;
+const PORT = process.env.PORT || 5001;
 
 const limiter = rateLimit({
   windowMs: 15 * 60 * 1000,
@@ -17,7 +17,7 @@ const limiter = rateLimit({
 
 app.use(helmet());
 app.use(cors({
-  origin: process.env.FRONTEND_URL || 'http://localhost:3000',
+  origin: process.env.FRONTEND_URL || 'http://localhost:5173',
   credentials: true
 }));
 app.use(limiter);
@@ -29,7 +29,7 @@ let users = [
   {
     id: 1,
     email: 'teacher@chemistry.com',
-    password: '$2a$12$LQv3c1yqBWVHxkd0LHAkCOYz6TtxMQJqhN8/LewGjgOZ8BgvCtGQG', // admin123
+    password: '$2b$12$sE5yryoMdoxRdR6CL7vc5u5DUAUN.i.kdYqk5x5CDoJORXutvvW62', // admin123
     name: 'Chemistry Teacher',
     role: 'teacher'
   }
@@ -86,18 +86,22 @@ app.get('/api/health', (req, res) => {
 // Auth routes
 app.post('/api/auth/login', async (req, res) => {
   try {
+    console.log('Login attempt:', req.body);
     const { email, password } = req.body;
-    
+
     if (!email || !password) {
       return res.status(400).json({ error: 'Email and password are required' });
     }
 
     const user = users.find(u => u.email === email);
+    console.log('User found:', user ? 'Yes' : 'No');
     if (!user) {
       return res.status(400).json({ error: 'Invalid credentials' });
     }
 
+    console.log('Comparing passwords...');
     const isPasswordValid = await bcrypt.compare(password, user.password);
+    console.log('Password valid:', isPasswordValid);
     if (!isPasswordValid) {
       return res.status(400).json({ error: 'Invalid credentials' });
     }
@@ -109,8 +113,9 @@ app.post('/api/auth/login', async (req, res) => {
       token
     });
   } catch (error) {
-    console.error('Login error:', error);
-    res.status(500).json({ error: 'Internal server error' });
+    console.error('Login error FULL:', error);
+    console.error('Error stack:', error.stack);
+    res.status(500).json({ error: 'Internal server error', details: error.message });
   }
 });
 
@@ -294,6 +299,151 @@ app.post('/api/tests/:id/questions', authenticateToken, requireRole(['teacher'])
   tests[testIndex].total_marks += marks;
 
   res.status(201).json({ question: newQuestion });
+});
+
+// Attempt routes (for students taking tests)
+app.post('/api/attempts/start/:testId', authenticateToken, requireRole(['student']), (req, res) => {
+  const testId = parseInt(req.params.testId);
+  const test = tests.find(t => t.id === testId);
+
+  if (!test) {
+    return res.status(404).json({ error: 'Test not found' });
+  }
+
+  // Check if student already has an incomplete attempt
+  const existingAttempt = attempts.find(
+    a => a.test_id === testId && a.student_id === req.user.id && !a.is_submitted
+  );
+
+  if (existingAttempt) {
+    return res.json({ attempt: existingAttempt });
+  }
+
+  // Create new attempt
+  const newAttempt = {
+    id: attempts.length + 1,
+    test_id: testId,
+    student_id: req.user.id,
+    start_time: new Date(),
+    is_submitted: false,
+    score: 0,
+    total_marks: test.total_marks
+  };
+
+  attempts.push(newAttempt);
+  res.status(201).json({ attempt: newAttempt });
+});
+
+app.post('/api/attempts/answer', authenticateToken, requireRole(['student']), (req, res) => {
+  const { attemptId, questionId, selectedAnswer } = req.body;
+
+  if (!attemptId || !questionId || !selectedAnswer) {
+    return res.status(400).json({ error: 'All fields are required' });
+  }
+
+  const attempt = attempts.find(a => a.id === attemptId);
+  if (!attempt) {
+    return res.status(404).json({ error: 'Attempt not found' });
+  }
+
+  if (attempt.student_id !== req.user.id) {
+    return res.status(403).json({ error: 'Access denied' });
+  }
+
+  if (attempt.is_submitted) {
+    return res.status(400).json({ error: 'Test already submitted' });
+  }
+
+  // Check if answer already exists
+  const existingAnswer = answers.find(
+    a => a.attempt_id === attemptId && a.question_id === questionId
+  );
+
+  if (existingAnswer) {
+    // Update existing answer
+    existingAnswer.selected_answer = selectedAnswer;
+    existingAnswer.updated_at = new Date();
+  } else {
+    // Create new answer
+    const newAnswer = {
+      id: answers.length + 1,
+      attempt_id: attemptId,
+      question_id: questionId,
+      selected_answer: selectedAnswer,
+      created_at: new Date()
+    };
+    answers.push(newAnswer);
+  }
+
+  res.json({ message: 'Answer saved' });
+});
+
+app.post('/api/attempts/submit', authenticateToken, requireRole(['student']), (req, res) => {
+  const { attemptId } = req.body;
+
+  if (!attemptId) {
+    return res.status(400).json({ error: 'Attempt ID is required' });
+  }
+
+  const attempt = attempts.find(a => a.id === attemptId);
+  if (!attempt) {
+    return res.status(404).json({ error: 'Attempt not found' });
+  }
+
+  if (attempt.student_id !== req.user.id) {
+    return res.status(403).json({ error: 'Access denied' });
+  }
+
+  if (attempt.is_submitted) {
+    return res.status(400).json({ error: 'Test already submitted' });
+  }
+
+  // Calculate score
+  const studentAnswers = answers.filter(a => a.attempt_id === attemptId);
+  let score = 0;
+
+  studentAnswers.forEach(answer => {
+    const question = questions.find(q => q.id === answer.question_id);
+    if (question && question.correct_answer === answer.selected_answer) {
+      score += question.marks;
+    }
+  });
+
+  // Update attempt
+  attempt.is_submitted = true;
+  attempt.end_time = new Date();
+  attempt.score = score;
+  attempt.time_taken_minutes = Math.round(
+    (attempt.end_time - new Date(attempt.start_time)) / 60000
+  );
+
+  res.json({
+    message: 'Test submitted successfully',
+    score,
+    total_marks: attempt.total_marks
+  });
+});
+
+app.get('/api/attempts/results/:testId', authenticateToken, requireRole(['student']), (req, res) => {
+  const testId = parseInt(req.params.testId);
+
+  const attempt = attempts.find(
+    a => a.test_id === testId && a.student_id === req.user.id && a.is_submitted
+  );
+
+  if (!attempt) {
+    return res.status(404).json({ error: 'No submitted attempt found' });
+  }
+
+  const test = tests.find(t => t.id === testId);
+
+  res.json({
+    attempt,
+    test: {
+      title: test.title,
+      description: test.description
+    }
+  });
 });
 
 app.listen(PORT, () => {

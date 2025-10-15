@@ -11,12 +11,14 @@ export default function Login() {
     role: 'student'
   });
   const [error, setError] = useState('');
+  const [success, setSuccess] = useState('');
   const [loading, setLoading] = useState(false);
   const navigate = useNavigate();
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
+    setSuccess('');
     setLoading(true);
 
     try {
@@ -31,20 +33,30 @@ export default function Login() {
           navigate('/student');
         }
       } else {
+        // Registration
         const response = await apiClient.register(
           formData.email,
           formData.password,
           formData.name,
           formData.role
         );
-        apiClient.setToken(response.token);
-        localStorage.setItem('user', JSON.stringify(response.user));
 
-        if (response.user.role === 'teacher') {
-          navigate('/teacher');
-        } else {
-          navigate('/student');
-        }
+        // Show success message - DO NOT log them in
+        setSuccess(response.message || 'Registration successful! Please check your email to verify your account.');
+
+        // Clear form
+        setFormData({
+          email: '',
+          password: '',
+          name: '',
+          role: 'student'
+        });
+
+        // Switch to login tab after 3 seconds
+        setTimeout(() => {
+          setIsLogin(true);
+          setSuccess('');
+        }, 5000);
       }
     } catch (err: any) {
       console.error('Login error:', err);
@@ -190,6 +202,15 @@ export default function Login() {
           {error && (
             <div style={{ padding: '0.75rem', backgroundColor: '#fee2e2', color: '#991b1b', borderRadius: '0.375rem', marginBottom: '1rem', fontSize: '0.875rem' }}>
               {error}
+            </div>
+          )}
+
+          {success && (
+            <div style={{ padding: '0.75rem', backgroundColor: '#dcfce7', color: '#166534', borderRadius: '0.375rem', marginBottom: '1rem', fontSize: '0.875rem', border: '1px solid #86efac' }}>
+              <strong>✅ {success}</strong>
+              <p style={{ marginTop: '0.5rem', fontSize: '0.75rem' }}>
+                Check your email inbox and click the verification link to activate your account.
+              </p>
             </div>
           )}
 

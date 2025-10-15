@@ -5,12 +5,14 @@ import AddQuestions from './pages/AddQuestions'
 import StudentDashboard from './pages/StudentDashboard'
 import TakeTest from './pages/TakeTest'
 import Students from './pages/Students'
+import VerifyEmail from './pages/VerifyEmail'
 
 function App() {
   return (
     <Router>
       <Routes>
         <Route path="/" element={<Login />} />
+        <Route path="/verify-email" element={<VerifyEmail />} />
         <Route path="/teacher" element={<TeacherDashboard />} />
         <Route path="/teacher/test/:testId" element={<AddQuestions />} />
         <Route path="/teacher/students" element={<Students />} />

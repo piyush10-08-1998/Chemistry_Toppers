@@ -130,6 +130,55 @@ class ApiClient {
     );
     return response.data;
   }
+
+  // Question extraction endpoints
+  public async extractQuestions(file: File) {
+    const formData = new FormData();
+    formData.append('file', file);
+
+    const response = await axios.post(`${this.baseURL}/questions/extract`,
+      formData,
+      {
+        headers: {
+          'Authorization': `Bearer ${this.token}`,
+          'Content-Type': 'multipart/form-data'
+        }
+      }
+    );
+    return response.data;
+  }
+
+  public async bulkAddQuestions(testId: number, questions: any[]) {
+    const response = await axios.post(`${this.baseURL}/tests/${testId}/questions/bulk`,
+      { questions },
+      { headers: this.getHeaders() }
+    );
+    return response.data;
+  }
+
+  public async deleteQuestion(questionId: number) {
+    const response = await axios.delete(`${this.baseURL}/questions/${questionId}`,
+      { headers: this.getHeaders() }
+    );
+    return response.data;
+  }
+
+  // Upload question image
+  public async uploadQuestionImage(file: File) {
+    const formData = new FormData();
+    formData.append('image', file);
+
+    const response = await axios.post(`${this.baseURL}/questions/upload-image`,
+      formData,
+      {
+        headers: {
+          'Authorization': `Bearer ${this.token}`,
+          'Content-Type': 'multipart/form-data'
+        }
+      }
+    );
+    return response.data;
+  }
 }
 
 export const apiClient = new ApiClient();

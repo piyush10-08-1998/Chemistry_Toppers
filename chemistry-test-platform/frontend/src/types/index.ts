@@ -25,6 +25,11 @@ export interface Question {
   option_d: string;
   correct_answer?: 'a' | 'b' | 'c' | 'd';
   marks: number;
+  image_url?: string;
+  option_a_image?: string;
+  option_b_image?: string;
+  option_c_image?: string;
+  option_d_image?: string;
 }
 
 export interface TestAttempt {
