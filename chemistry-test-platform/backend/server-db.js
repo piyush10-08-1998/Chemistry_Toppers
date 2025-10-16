@@ -46,7 +46,7 @@ app.use(helmet({
   contentSecurityPolicy: {
     directives: {
       defaultSrc: ["'self'"],
-      imgSrc: ["'self'", "data:", "http://localhost:5001", "http://localhost:5174", "http://localhost:5173"],
+      imgSrc: ["'self'", "data:", "http://localhost:5001", "http://localhost:5174", "http://localhost:5173", "https://*.onrender.com"],
       scriptSrc: ["'self'", "'unsafe-inline'"],
       styleSrc: ["'self'", "'unsafe-inline'"],
     }
