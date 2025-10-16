@@ -145,8 +145,10 @@ app.post('/api/auth/login', async (req, res) => {
     }
 
     // Check if email is verified (skip for admin/teacher accounts created via env)
+    // TEMPORARY: Email verification disabled until email service is configured
     const isAdminEmail = email.toLowerCase().trim() === (process.env.ADMIN_EMAIL || '').toLowerCase();
-    if (!user.is_email_verified && !isAdminEmail) {
+    const emailVerificationEnabled = process.env.EMAIL_VERIFICATION_ENABLED === 'true';
+    if (emailVerificationEnabled && !user.is_email_verified && !isAdminEmail) {
       return res.status(403).json({
         error: 'Please verify your email before logging in. Check your inbox for the verification link.',
         requiresVerification: true
