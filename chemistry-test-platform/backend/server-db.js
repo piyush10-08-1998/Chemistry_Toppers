@@ -780,19 +780,15 @@ app.post('/api/questions/extract', authenticateToken, requireRole(['teacher']), 
       return res.status(400).json({ error: result.error });
     }
 
-    // Save image permanently for image files (not PDFs)
+    // Convert image to base64 for database storage (Render has ephemeral storage)
     let imageUrl = null;
     if (req.file.mimetype.startsWith('image/')) {
-      const permanentFilename = `question-${Date.now()}-${Math.round(Math.random() * 1E9)}${path.extname(req.file.originalname)}`;
-      const permanentPath = path.join(questionImagesDir, permanentFilename);
+      // Read file and convert to base64
+      const imageBuffer = fs.readFileSync(req.file.path);
+      const base64Image = `data:${req.file.mimetype};base64,${imageBuffer.toString('base64')}`;
+      imageUrl = base64Image;
 
-      // Copy file to permanent location
-      fs.copyFileSync(req.file.path, permanentPath);
-
-      // Generate URL (relative to backend URL)
-      imageUrl = `/question-images/${permanentFilename}`;
-
-      console.log(`🖼️  Saved question image: ${imageUrl}`);
+      console.log(`🖼️  Converted question image to base64 (${Math.round(imageBuffer.length / 1024)}KB)`);
     }
 
     // Clean up temporary uploaded file
@@ -837,21 +833,18 @@ app.post('/api/questions/upload-image', authenticateToken, requireRole(['teacher
       return res.status(400).json({ error: 'Only image files are allowed' });
     }
 
-    const permanentFilename = `question-${Date.now()}-${Math.round(Math.random() * 1E9)}${path.extname(req.file.originalname)}`;
-    const permanentPath = path.join(questionImagesDir, permanentFilename);
+    // Convert image to base64 for database storage (Render has ephemeral storage)
+    const imageBuffer = fs.readFileSync(req.file.path);
+    const base64Image = `data:${req.file.mimetype};base64,${imageBuffer.toString('base64')}`;
 
-    // Move file to permanent location
-    fs.copyFileSync(req.file.path, permanentPath);
+    // Clean up temporary file
     fs.unlinkSync(req.file.path);
 
-    // Generate URL
-    const imageUrl = `/question-images/${permanentFilename}`;
-
-    console.log(`🖼️  Uploaded question image: ${imageUrl}`);
+    console.log(`🖼️  Uploaded and converted question image to base64 (${Math.round(imageBuffer.length / 1024)}KB)`);
 
     res.json({
       message: 'Image uploaded successfully',
-      image_url: imageUrl
+      image_url: base64Image
     });
   } catch (error) {
     console.error('Image upload error:', error);
