@@ -55,6 +55,13 @@ export default function AddQuestions() {
       const response = await apiClient.getTest(parseInt(testId!));
       setTest(response.test);
       setQuestions(response.questions || []);
+
+      // Debug: Log image URLs
+      response.questions?.forEach((q: any, index: number) => {
+        if (q.image_url) {
+          console.log(`Question ${index + 1} image_url:`, q.image_url?.substring(0, 50) + '...', 'Length:', q.image_url?.length);
+        }
+      });
     } catch (error) {
       console.error('Error fetching test:', error);
       alert('Failed to load test');
@@ -786,6 +793,12 @@ export default function AddQuestions() {
                       <img
                         src={q.image_url}
                         alt="Question diagram"
+                        onError={(e) => {
+                          console.error('Image load error for question', q.id, 'URL length:', q.image_url?.length);
+                          e.currentTarget.style.display = 'none';
+                          e.currentTarget.insertAdjacentHTML('afterend', '<p style="color: red; font-size: 0.875rem;">⚠️ Image failed to load</p>');
+                        }}
+                        onLoad={() => console.log('Image loaded successfully for question', q.id)}
                         style={{ maxWidth: '100%', maxHeight: '200px', borderRadius: '0.375rem', border: '1px solid #d1d5db' }}
                       />
                     </div>
