@@ -216,13 +216,13 @@ export default function StudentDashboard() {
                     )}
                   </div>
 
-                  <div style={{ display: 'flex', gap: '0.5rem' }}>
+                  {test.hasAttempted ? (
                     <button
-                      onClick={() => handleStartTest(test.id)}
+                      onClick={() => navigate(`/test/${test.id}/results`)}
                       style={{
-                        flex: 1,
+                        width: '100%',
                         padding: '0.75rem',
-                        backgroundColor: test.hasAttempted ? '#3b82f6' : '#10b981',
+                        backgroundColor: '#10b981',
                         color: 'white',
                         fontWeight: '600',
                         borderRadius: '0.375rem',
@@ -232,41 +232,39 @@ export default function StudentDashboard() {
                         transition: 'background-color 0.2s'
                       }}
                       onMouseOver={(e) => {
-                        e.currentTarget.style.backgroundColor = test.hasAttempted ? '#2563eb' : '#059669';
+                        e.currentTarget.style.backgroundColor = '#059669';
                       }}
                       onMouseOut={(e) => {
-                        e.currentTarget.style.backgroundColor = test.hasAttempted ? '#3b82f6' : '#10b981';
+                        e.currentTarget.style.backgroundColor = '#10b981';
                       }}
                     >
-                      {test.hasAttempted ? 'Retake Test' : 'Start Test'}
+                      View Results
                     </button>
-
-                    {test.hasAttempted && (
-                      <button
-                        onClick={() => navigate(`/test/${test.id}/results`)}
-                        style={{
-                          flex: 1,
-                          padding: '0.75rem',
-                          backgroundColor: '#10b981',
-                          color: 'white',
-                          fontWeight: '600',
-                          borderRadius: '0.375rem',
-                          border: 'none',
-                          cursor: 'pointer',
-                          fontSize: '1rem',
-                          transition: 'background-color 0.2s'
-                        }}
-                        onMouseOver={(e) => {
-                          e.currentTarget.style.backgroundColor = '#059669';
-                        }}
-                        onMouseOut={(e) => {
-                          e.currentTarget.style.backgroundColor = '#10b981';
-                        }}
-                      >
-                        View Results
-                      </button>
-                    )}
-                  </div>
+                  ) : (
+                    <button
+                      onClick={() => handleStartTest(test.id)}
+                      style={{
+                        width: '100%',
+                        padding: '0.75rem',
+                        backgroundColor: '#10b981',
+                        color: 'white',
+                        fontWeight: '600',
+                        borderRadius: '0.375rem',
+                        border: 'none',
+                        cursor: 'pointer',
+                        fontSize: '1rem',
+                        transition: 'background-color 0.2s'
+                      }}
+                      onMouseOver={(e) => {
+                        e.currentTarget.style.backgroundColor = '#059669';
+                      }}
+                      onMouseOut={(e) => {
+                        e.currentTarget.style.backgroundColor = '#10b981';
+                      }}
+                    >
+                      Start Test
+                    </button>
+                  )}
                 </div>
               </div>
             ))}
