@@ -211,16 +211,20 @@ app.post('/api/auth/register', async (req, res) => {
 
     const newUser = result.rows[0];
 
-    // Send verification email (don't fail registration if email fails)
-    try {
-      const emailResult = await sendVerificationEmail(cleanEmail, verificationToken, name);
-      if (!emailResult.success) {
-        console.error('Failed to send verification email:', emailResult.error);
+    // Send verification email asynchronously (don't block registration response)
+    // This prevents registration from hanging if email is slow
+    setImmediate(async () => {
+      try {
+        const emailResult = await sendVerificationEmail(cleanEmail, verificationToken, name);
+        if (!emailResult.success) {
+          console.error('Failed to send verification email:', emailResult.error);
+        } else {
+          console.log(`✅ Verification email sent to ${cleanEmail}`);
+        }
+      } catch (emailError) {
+        console.error('Error sending verification email:', emailError);
       }
-    } catch (emailError) {
-      console.error('Error sending verification email:', emailError);
-      // Continue with registration even if email fails
-    }
+    });
 
     // Students always need to verify email to prevent fake registrations
     // Teachers can be verified manually by admin
