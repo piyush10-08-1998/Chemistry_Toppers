@@ -144,11 +144,13 @@ app.post('/api/auth/login', async (req, res) => {
       return res.status(400).json({ error: 'Invalid credentials' });
     }
 
-    // Check if email is verified for students only
-    // Admin/teacher with ADMIN_EMAIL can skip verification
+    // Email verification disabled - students can register and login immediately
+    // This allows platform to grow without email verification requirement
+    // Can be enabled later by setting REQUIRE_EMAIL_VERIFICATION=true
     const isAdminEmail = email.toLowerCase().trim() === (process.env.ADMIN_EMAIL || 'teacher@chemistry.com').toLowerCase();
+    const emailVerificationRequired = process.env.REQUIRE_EMAIL_VERIFICATION === 'true';
 
-    if (!user.is_email_verified && !isAdminEmail && user.role === 'student') {
+    if (emailVerificationRequired && !user.is_email_verified && !isAdminEmail && user.role === 'student') {
       return res.status(403).json({
         error: 'Please verify your email before logging in. Check your inbox for the verification link.',
         requiresVerification: true
