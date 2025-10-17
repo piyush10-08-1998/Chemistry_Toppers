@@ -144,11 +144,12 @@ app.post('/api/auth/login', async (req, res) => {
       return res.status(400).json({ error: 'Invalid credentials' });
     }
 
-    // Check if email is verified (skip for admin/teacher accounts created via env)
-    // TEMPORARY: Email verification disabled until email service is configured
+    // Check if email is verified
+    // Admin/teacher with ADMIN_EMAIL can skip verification
+    // All students MUST verify their email to prevent fake registrations
     const isAdminEmail = email.toLowerCase().trim() === (process.env.ADMIN_EMAIL || '').toLowerCase();
-    const emailVerificationEnabled = process.env.EMAIL_VERIFICATION_ENABLED === 'true';
-    if (emailVerificationEnabled && !user.is_email_verified && !isAdminEmail) {
+
+    if (!user.is_email_verified && !isAdminEmail && user.role === 'student') {
       return res.status(403).json({
         error: 'Please verify your email before logging in. Check your inbox for the verification link.',
         requiresVerification: true
@@ -221,16 +222,17 @@ app.post('/api/auth/register', async (req, res) => {
       // Continue with registration even if email fails
     }
 
-    // Check if email verification is enabled
-    const emailVerificationEnabled = process.env.EMAIL_VERIFICATION_ENABLED === 'true';
-    const message = emailVerificationEnabled
+    // Students always need to verify email to prevent fake registrations
+    // Teachers can be verified manually by admin
+    const requiresVerification = role === 'student';
+    const message = requiresVerification
       ? 'Registration successful! Please check your email to verify your account.'
       : 'Registration successful! You can now login.';
 
     res.status(201).json({
       message,
       user: newUser,
-      requiresVerification: emailVerificationEnabled
+      requiresVerification
     });
   } catch (error) {
     console.error('Registration error:', error);

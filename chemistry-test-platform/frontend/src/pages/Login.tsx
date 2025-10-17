@@ -34,15 +34,19 @@ export default function Login() {
         }
       } else {
         // Registration
-        await apiClient.register(
+        const response = await apiClient.register(
           formData.email,
           formData.password,
           formData.name,
           formData.role
         );
 
-        // Show success message - DO NOT log them in
-        setSuccess('Registration successful! You can now login with your credentials.');
+        // Show success message based on role
+        if (formData.role === 'student') {
+          setSuccess(response.message || 'Registration successful! Please check your email to verify your account.');
+        } else {
+          setSuccess('Registration successful! You can now login with your credentials.');
+        }
 
         // Clear form
         setFormData({
@@ -208,6 +212,11 @@ export default function Login() {
           {success && (
             <div style={{ padding: '0.75rem', backgroundColor: '#dcfce7', color: '#166534', borderRadius: '0.375rem', marginBottom: '1rem', fontSize: '0.875rem', border: '1px solid #86efac' }}>
               <strong>✅ {success}</strong>
+              {success.includes('verify your email') && (
+                <p style={{ marginTop: '0.5rem', fontSize: '0.75rem' }}>
+                  Check your email inbox and click the verification link to activate your account.
+                </p>
+              )}
             </div>
           )}
 
