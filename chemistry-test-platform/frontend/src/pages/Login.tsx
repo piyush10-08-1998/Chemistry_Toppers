@@ -88,6 +88,23 @@ export default function Login() {
           </p>
         </div>
 
+        {/* Update Notice */}
+        <div style={{
+          padding: '0.75rem',
+          backgroundColor: '#dbeafe',
+          color: '#1e40af',
+          borderRadius: '0.375rem',
+          marginBottom: '1.5rem',
+          fontSize: '0.875rem',
+          border: '1px solid #93c5fd',
+          textAlign: 'center'
+        }}>
+          <strong>Platform Updated!</strong>
+          <p style={{ marginTop: '0.25rem', fontSize: '0.75rem' }}>
+            If you have login issues, please register once again. Pages have been updated.
+          </p>
+        </div>
+
         <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '1.5rem' }}>
           <button
             onClick={() => setIsLogin(true)}
