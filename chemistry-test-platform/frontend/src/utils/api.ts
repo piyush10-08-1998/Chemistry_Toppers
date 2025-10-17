@@ -102,6 +102,13 @@ class ApiClient {
     return response.data;
   }
 
+  public async getAttemptAnswers(attemptId: number) {
+    const response = await axios.get(`${this.baseURL}/attempts/${attemptId}/answers`,
+      { headers: this.getHeaders() }
+    );
+    return response.data;
+  }
+
   public async getTestResults(testId: number) {
     const response = await axios.get(`${this.baseURL}/attempts/results/${testId}`,
       { headers: this.getHeaders() }
@@ -126,6 +133,13 @@ class ApiClient {
 
   public async getStudentDetails(studentId: number) {
     const response = await axios.get(`${this.baseURL}/analytics/student/${studentId}`,
+      { headers: this.getHeaders() }
+    );
+    return response.data;
+  }
+
+  public async getAttemptDetails(attemptId: number) {
+    const response = await axios.get(`${this.baseURL}/analytics/attempt/${attemptId}`,
       { headers: this.getHeaders() }
     );
     return response.data;

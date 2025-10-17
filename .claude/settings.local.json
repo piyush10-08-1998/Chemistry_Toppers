@@ -26,7 +26,8 @@
       "Bash(open:*)",
       "Bash(npm run build:*)",
       "mcp__ide__getDiagnostics",
-      "Bash(openssl rand:*)"
+      "Bash(openssl rand:*)",
+      "Bash(PGPASSWORD=0zIF5xYGfxSz8IMi2IpGiK0NPOb7ozvl psql:*)"
     ],
     "deny": [],
     "ask": []
