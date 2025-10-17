@@ -501,9 +501,30 @@ export default function AddQuestions() {
 
             {/* Image Upload (Optional) */}
             <div style={{ marginBottom: '1.5rem' }}>
-              <label style={{ display: 'block', fontSize: '0.875rem', fontWeight: '500', marginBottom: '0.5rem' }}>
-                Question Image (Optional - for diagrams, structures, etc.)
-              </label>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem' }}>
+                <label style={{ fontSize: '0.875rem', fontWeight: '500' }}>
+                  Question Image (Optional - for diagrams, structures, etc.)
+                </label>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setNewQuestion({ ...newQuestion, image_url: '' });
+                    setImagePreview(null);
+                  }}
+                  style={{
+                    padding: '0.375rem 0.75rem',
+                    backgroundColor: '#f59e0b',
+                    color: 'white',
+                    border: 'none',
+                    borderRadius: '0.375rem',
+                    cursor: 'pointer',
+                    fontSize: '0.75rem',
+                    fontWeight: '500'
+                  }}
+                >
+                  Skip Image for this Question
+                </button>
+              </div>
 
               {!imagePreview ? (
                 <div>
@@ -526,7 +547,7 @@ export default function AddQuestions() {
                     </p>
                   )}
                   <p style={{ fontSize: '0.75rem', color: '#6b7280', marginTop: '0.5rem' }}>
-                    Upload chemical structures, diagrams, or any relevant image (max 5MB)
+                    Upload chemical structures, diagrams, or any relevant image (max 5MB). Or click "Skip Image" above to continue without an image.
                   </p>
                 </div>
               ) : (
