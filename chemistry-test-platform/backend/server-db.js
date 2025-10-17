@@ -221,10 +221,16 @@ app.post('/api/auth/register', async (req, res) => {
       // Continue with registration even if email fails
     }
 
+    // Check if email verification is enabled
+    const emailVerificationEnabled = process.env.EMAIL_VERIFICATION_ENABLED === 'true';
+    const message = emailVerificationEnabled
+      ? 'Registration successful! Please check your email to verify your account.'
+      : 'Registration successful! You can now login.';
+
     res.status(201).json({
-      message: 'Registration successful! Please check your email to verify your account.',
+      message,
       user: newUser,
-      requiresVerification: true
+      requiresVerification: emailVerificationEnabled
     });
   } catch (error) {
     console.error('Registration error:', error);
