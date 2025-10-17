@@ -609,12 +609,48 @@ app.post('/api/attempts/submit', authenticateToken, requireRole(['student']), as
   }
 });
 
+// Get student's current answers for an attempt (for review during test)
+app.get('/api/attempts/:attemptId/answers', authenticateToken, requireRole(['student']), async (req, res) => {
+  try {
+    const attemptId = parseInt(req.params.attemptId);
+
+    const attemptResult = await pool.query('SELECT * FROM test_attempts WHERE id = $1', [attemptId]);
+
+    if (attemptResult.rows.length === 0) {
+      return res.status(404).json({ error: 'Attempt not found' });
+    }
+
+    const attempt = attemptResult.rows[0];
+
+    if (attempt.student_id !== req.user.id) {
+      return res.status(403).json({ error: 'Access denied' });
+    }
+
+    // Get all answers for this attempt
+    const answersResult = await pool.query(
+      'SELECT question_id, selected_answer FROM student_answers WHERE attempt_id = $1',
+      [attemptId]
+    );
+
+    // Create a map of question_id -> selected_answer
+    const answersMap = {};
+    answersResult.rows.forEach(row => {
+      answersMap[row.question_id] = row.selected_answer;
+    });
+
+    res.json({ answers: answersMap });
+  } catch (error) {
+    console.error('Get answers error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
 app.get('/api/attempts/results/:testId', authenticateToken, requireRole(['student']), async (req, res) => {
   try {
     const testId = parseInt(req.params.testId);
 
     const attemptResult = await pool.query(
-      'SELECT * FROM test_attempts WHERE test_id = $1 AND student_id = $2 AND is_submitted = true',
+      'SELECT * FROM test_attempts WHERE test_id = $1 AND student_id = $2 AND is_submitted = true ORDER BY end_time DESC LIMIT 1',
       [testId, req.user.id]
     );
 
@@ -622,11 +658,54 @@ app.get('/api/attempts/results/:testId', authenticateToken, requireRole(['studen
       return res.status(404).json({ error: 'No submitted attempt found' });
     }
 
-    const testResult = await pool.query('SELECT title, description FROM tests WHERE id = $1', [testId]);
+    const attempt = attemptResult.rows[0];
+    const testResult = await pool.query('SELECT title, description, total_marks FROM tests WHERE id = $1', [testId]);
+
+    // Get detailed question-by-question results
+    const questionsResult = await pool.query(`
+      SELECT
+        q.id,
+        q.question_text,
+        q.option_a,
+        q.option_b,
+        q.option_c,
+        q.option_d,
+        q.correct_answer,
+        q.marks,
+        q.image_url,
+        sa.selected_answer,
+        CASE
+          WHEN sa.selected_answer = q.correct_answer THEN true
+          WHEN sa.selected_answer IS NULL THEN NULL
+          ELSE false
+        END as is_correct
+      FROM questions q
+      LEFT JOIN student_answers sa ON sa.question_id = q.id AND sa.attempt_id = $1
+      WHERE q.test_id = $2
+      ORDER BY q.question_order
+    `, [attempt.id, testId]);
+
+    // Calculate statistics
+    const totalQuestions = questionsResult.rows.length;
+    const attempted = questionsResult.rows.filter(q => q.selected_answer !== null).length;
+    const correct = questionsResult.rows.filter(q => q.is_correct === true).length;
+    const incorrect = questionsResult.rows.filter(q => q.is_correct === false).length;
+    const unattempted = totalQuestions - attempted;
 
     res.json({
-      attempt: attemptResult.rows[0],
-      test: testResult.rows[0]
+      attempt,
+      test: testResult.rows[0],
+      questions: questionsResult.rows,
+      statistics: {
+        total_questions: totalQuestions,
+        attempted,
+        correct,
+        incorrect,
+        unattempted,
+        score: attempt.score,
+        total_marks: attempt.total_marks,
+        percentage: Math.round((attempt.score / attempt.total_marks) * 100)
+      }
     });
   } catch (error) {
     console.error('Get results error:', error);
@@ -671,8 +750,13 @@ app.get('/api/analytics/test-results/:testId', authenticateToken, requireRole(['
       return res.status(404).json({ error: 'Test not found or access denied' });
     }
 
+    // Get total questions count
+    const questionsCount = await pool.query('SELECT COUNT(*) as count FROM questions WHERE test_id = $1', [testId]);
+    const totalQuestions = parseInt(questionsCount.rows[0].count);
+
     const resultsQuery = await pool.query(`
       SELECT
+        ta.id as attempt_id,
         u.id as student_id,
         u.name as student_name,
         u.email as student_email,
@@ -682,19 +766,112 @@ app.get('/api/analytics/test-results/:testId', authenticateToken, requireRole(['
         ta.time_taken_minutes,
         ta.start_time,
         ta.end_time,
-        ta.is_submitted
+        ta.is_submitted,
+        (SELECT COUNT(*) FROM student_answers WHERE attempt_id = ta.id) as attempted_count
       FROM test_attempts ta
       JOIN users u ON ta.student_id = u.id
       WHERE ta.test_id = $1 AND ta.is_submitted = true
       ORDER BY ta.end_time DESC
     `, [testId]);
 
+    // Add statistics for each result
+    const resultsWithStats = resultsQuery.rows.map(result => ({
+      ...result,
+      total_questions: totalQuestions,
+      correct: Math.round((result.score / result.total_marks) * totalQuestions),
+      incorrect: result.attempted_count - Math.round((result.score / result.total_marks) * totalQuestions),
+      unattempted: totalQuestions - result.attempted_count
+    }));
+
     res.json({
       test: testResult.rows[0],
-      results: resultsQuery.rows
+      results: resultsWithStats
     });
   } catch (error) {
     console.error('Get test results error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// Get detailed analytics for a specific attempt (for teachers)
+app.get('/api/analytics/attempt/:attemptId', authenticateToken, requireRole(['teacher']), async (req, res) => {
+  try {
+    const attemptId = parseInt(req.params.attemptId);
+
+    // Get attempt details
+    const attemptResult = await pool.query(`
+      SELECT ta.*, u.name as student_name, u.email as student_email, t.title as test_title, t.created_by
+      FROM test_attempts ta
+      JOIN users u ON ta.student_id = u.id
+      JOIN tests t ON ta.test_id = t.id
+      WHERE ta.id = $1
+    `, [attemptId]);
+
+    if (attemptResult.rows.length === 0) {
+      return res.status(404).json({ error: 'Attempt not found' });
+    }
+
+    const attempt = attemptResult.rows[0];
+
+    // Verify teacher owns the test
+    if (attempt.created_by !== req.user.id) {
+      return res.status(403).json({ error: 'Access denied' });
+    }
+
+    // Get question-by-question details
+    const questionsResult = await pool.query(`
+      SELECT
+        q.id,
+        q.question_text,
+        q.option_a,
+        q.option_b,
+        q.option_c,
+        q.option_d,
+        q.correct_answer,
+        q.marks,
+        sa.selected_answer,
+        CASE
+          WHEN sa.selected_answer = q.correct_answer THEN true
+          WHEN sa.selected_answer IS NULL THEN NULL
+          ELSE false
+        END as is_correct
+      FROM questions q
+      LEFT JOIN student_answers sa ON sa.question_id = q.id AND sa.attempt_id = $1
+      WHERE q.test_id = $2
+      ORDER BY q.question_order
+    `, [attemptId, attempt.test_id]);
+
+    // Calculate statistics
+    const totalQuestions = questionsResult.rows.length;
+    const attempted = questionsResult.rows.filter(q => q.selected_answer !== null).length;
+    const correct = questionsResult.rows.filter(q => q.is_correct === true).length;
+    const incorrect = questionsResult.rows.filter(q => q.is_correct === false).length;
+    const unattempted = totalQuestions - attempted;
+
+    res.json({
+      attempt: {
+        id: attempt.id,
+        student_name: attempt.student_name,
+        student_email: attempt.student_email,
+        test_title: attempt.test_title,
+        score: attempt.score,
+        total_marks: attempt.total_marks,
+        time_taken_minutes: attempt.time_taken_minutes,
+        start_time: attempt.start_time,
+        end_time: attempt.end_time
+      },
+      statistics: {
+        total_questions: totalQuestions,
+        attempted,
+        correct,
+        incorrect,
+        unattempted,
+        percentage: Math.round((attempt.score / attempt.total_marks) * 100)
+      },
+      questions: questionsResult.rows
+    });
+  } catch (error) {
+    console.error('Get attempt details error:', error);
     res.status(500).json({ error: 'Internal server error' });
   }
 });
