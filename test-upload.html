@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Test Image Upload</title>
+</head>
+<body>
+    <h1>Test Image Upload</h1>
+
+    <div>
+        <p>1. Login first to get token:</p>
+        <input type="email" id="email" value="teacher@chemistry.com" placeholder="Email">
+        <input type="password" id="password" value="admin123" placeholder="Password">
+        <button onclick="login()">Login</button>
+        <p id="loginStatus"></p>
+    </div>
+
+    <hr>
+
+    <div>
+        <p>2. Upload image (must login first):</p>
+        <input type="file" id="imageFile" accept="image/*">
+        <button onclick="uploadImage()">Upload Image</button>
+        <p id="uploadStatus"></p>
+        <div id="result"></div>
+    </div>
+
+    <script>
+        let token = null;
+
+        async function login() {
+            const email = document.getElementById('email').value;
+            const password = document.getElementById('password').value;
+
+            try {
+                const response = await fetch('http://localhost:5001/api/auth/login', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ email, password })
+                });
+
+                const data = await response.json();
+
+                if (data.token) {
+                    token = data.token;
+                    document.getElementById('loginStatus').innerHTML =
+                        `✅ Logged in as ${data.user.name} (${data.user.role})`;
+                    document.getElementById('loginStatus').style.color = 'green';
+                } else {
+                    document.getElementById('loginStatus').innerHTML =
+                        `❌ Login failed: ${data.error}`;
+                    document.getElementById('loginStatus').style.color = 'red';
+                }
+            } catch (error) {
+                document.getElementById('loginStatus').innerHTML =
+                    `❌ Error: ${error.message}`;
+                document.getElementById('loginStatus').style.color = 'red';
+            }
+        }
+
+        async function uploadImage() {
+            if (!token) {
+                alert('Please login first!');
+                return;
+            }
+
+            const fileInput = document.getElementById('imageFile');
+            const file = fileInput.files[0];
+
+            if (!file) {
+                alert('Please select an image file!');
+                return;
+            }
+
+            document.getElementById('uploadStatus').innerHTML = 'Uploading...';
+            document.getElementById('uploadStatus').style.color = 'blue';
+
+            const formData = new FormData();
+            formData.append('image', file);
+
+            try {
+                const response = await fetch('http://localhost:5001/api/questions/upload-image', {
+                    method: 'POST',
+                    headers: {
+                        'Authorization': `Bearer ${token}`
+                    },
+                    body: formData
+                });
+
+                const data = await response.json();
+
+                if (response.ok) {
+                    document.getElementById('uploadStatus').innerHTML =
+                        `✅ ${data.message}`;
+                    document.getElementById('uploadStatus').style.color = 'green';
+
+                    document.getElementById('result').innerHTML =
+                        `<p><strong>Image URL:</strong> ${data.image_url}</p>
+                         <img src="http://localhost:5001${data.image_url}" style="max-width: 400px; border: 1px solid #ccc;">`;
+                } else {
+                    document.getElementById('uploadStatus').innerHTML =
+                        `❌ Upload failed: ${data.error}`;
+                    document.getElementById('uploadStatus').style.color = 'red';
+                }
+            } catch (error) {
+                document.getElementById('uploadStatus').innerHTML =
+                    `❌ Error: ${error.message}`;
+                document.getElementById('uploadStatus').style.color = 'red';
+                console.error('Upload error:', error);
+            }
+        }
+    </script>
+</body>
+</html>

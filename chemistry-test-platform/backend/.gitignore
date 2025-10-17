@@ -23,3 +23,6 @@ build/
 # Logs
 logs/
 *.log
+
+# Uploads
+chemistry-test-platform/backend/uploads/
