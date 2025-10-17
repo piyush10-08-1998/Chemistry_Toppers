@@ -160,11 +160,11 @@ export default function AddQuestions() {
       // Update based on crop target
       if (cropTarget === 'question') {
         setNewQuestion(prev => ({ ...prev, image_url: response.image_url }));
-        setImagePreview(`http://localhost:5001${response.image_url}`);
+        setImagePreview(response.image_url);
       } else {
         // For option images
         setNewQuestion(prev => ({ ...prev, [`${cropTarget}_image`]: response.image_url }));
-        setOptionImagePreviews(prev => ({ ...prev, [cropTarget.replace('option_', '')]: `http://localhost:5001${response.image_url}` }));
+        setOptionImagePreviews(prev => ({ ...prev, [cropTarget.replace('option_', '')]: response.image_url }));
       }
 
       setShowCropModal(false);
@@ -242,7 +242,7 @@ export default function AddQuestions() {
       });
 
       if (nextQuestion.image_url) {
-        setImagePreview(`http://localhost:5001${nextQuestion.image_url}`);
+        setImagePreview(nextQuestion.image_url);
       } else {
         setImagePreview(null);
       }
@@ -326,8 +326,7 @@ export default function AddQuestions() {
 
         // Set image preview if there's a question image - open crop modal
         if (firstQuestion.image_url) {
-          const fullImageUrl = `http://localhost:5001${firstQuestion.image_url}`;
-          setImageToCrop(fullImageUrl);
+          setImageToCrop(firstQuestion.image_url);
           setShowCropModal(true);
         }
 
@@ -785,7 +784,7 @@ export default function AddQuestions() {
                   {q.image_url && (
                     <div style={{ marginBottom: '1rem', textAlign: 'center' }}>
                       <img
-                        src={`http://localhost:5001${q.image_url}`}
+                        src={q.image_url}
                         alt="Question diagram"
                         style={{ maxWidth: '100%', maxHeight: '200px', borderRadius: '0.375rem', border: '1px solid #d1d5db' }}
                       />

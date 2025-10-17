@@ -285,7 +285,7 @@ export default function TakeTest() {
             {currentQuestion.image_url && (
               <div style={{ marginBottom: '1.5rem', textAlign: 'center' }}>
                 <img
-                  src={`http://localhost:5001${currentQuestion.image_url}`}
+                  src={currentQuestion.image_url}
                   alt="Question diagram"
                   style={{
                     maxWidth: '100%',
