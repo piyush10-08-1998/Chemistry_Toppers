@@ -98,7 +98,7 @@ export default function TeacherDashboard() {
     }
   };
 
-  const handleTogglePublish = async (testId: number, currentStatus: boolean) => {
+  const handleTogglePublish = async (testId: number) => {
     try {
       const response = await apiClient.togglePublishTest(testId);
       alert(response.message);
@@ -418,7 +418,7 @@ export default function TeacherDashboard() {
                     Add Questions
                   </button>
                   <button
-                    onClick={() => handleTogglePublish(test.id, test.is_published)}
+                    onClick={() => handleTogglePublish(test.id)}
                     style={{
                       padding: '0.5rem 1rem',
                       backgroundColor: test.is_published ? '#f59e0b' : '#10b981',
