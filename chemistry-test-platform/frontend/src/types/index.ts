@@ -12,6 +12,7 @@ export interface Test {
   duration_minutes: number;
   total_marks: number;
   is_active: boolean;
+  exam_type: 'NEET' | 'JEE';
   created_at: string;
 }
 

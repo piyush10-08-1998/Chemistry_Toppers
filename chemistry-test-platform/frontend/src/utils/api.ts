@@ -52,8 +52,12 @@ class ApiClient {
     return response.data;
   }
 
-  public async getTests() {
-    const response = await axios.get(`${this.baseURL}/tests`, { headers: this.getHeaders() });
+  public async getTests(exam_type?: 'NEET' | 'JEE') {
+    const params = exam_type ? { exam_type } : {};
+    const response = await axios.get(`${this.baseURL}/tests`, {
+      headers: this.getHeaders(),
+      params
+    });
     return response.data;
   }
 
@@ -62,9 +66,9 @@ class ApiClient {
     return response.data;
   }
 
-  public async createTest(title: string, description: string, duration_minutes: number) {
+  public async createTest(title: string, description: string, duration_minutes: number, exam_type: 'NEET' | 'JEE') {
     const response = await axios.post(`${this.baseURL}/tests`,
-      { title, description, duration_minutes },
+      { title, description, duration_minutes, exam_type },
       { headers: this.getHeaders() }
     );
     return response.data;

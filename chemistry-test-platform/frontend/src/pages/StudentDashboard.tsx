@@ -13,6 +13,7 @@ export default function StudentDashboard() {
   const [tests, setTests] = useState<TestWithAttempt[]>([]);
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
+  const [selectedFilter, setSelectedFilter] = useState<'ALL' | 'NEET' | 'JEE'>('ALL');
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -25,10 +26,17 @@ export default function StudentDashboard() {
     }
   }, [navigate]);
 
+  useEffect(() => {
+    if (user) {
+      fetchTests();
+    }
+  }, [selectedFilter, user]);
+
   const fetchTests = async () => {
     try {
       setLoading(true);
-      const response = await apiClient.getTests();
+      const filter = selectedFilter === 'ALL' ? undefined : selectedFilter;
+      const response = await apiClient.getTests(filter);
 
       // Fetch attempt history for each test
       const testsWithAttempts = await Promise.all(
@@ -125,8 +133,57 @@ export default function StudentDashboard() {
           </p>
         </div>
 
+        {/* Filter Buttons */}
+        <div style={{ marginBottom: '1.5rem', display: 'flex', gap: '1rem', flexWrap: 'wrap' }}>
+          <button
+            onClick={() => setSelectedFilter('ALL')}
+            style={{
+              padding: '0.75rem 1.5rem',
+              backgroundColor: selectedFilter === 'ALL' ? '#1e40af' : '#e5e7eb',
+              color: selectedFilter === 'ALL' ? 'white' : '#374151',
+              fontWeight: '600',
+              borderRadius: '0.375rem',
+              border: 'none',
+              cursor: 'pointer',
+              fontSize: '1rem'
+            }}
+          >
+            All Tests
+          </button>
+          <button
+            onClick={() => setSelectedFilter('NEET')}
+            style={{
+              padding: '0.75rem 1.5rem',
+              backgroundColor: selectedFilter === 'NEET' ? '#dc2626' : '#e5e7eb',
+              color: selectedFilter === 'NEET' ? 'white' : '#374151',
+              fontWeight: '600',
+              borderRadius: '0.375rem',
+              border: 'none',
+              cursor: 'pointer',
+              fontSize: '1rem'
+            }}
+          >
+            NEET Tests
+          </button>
+          <button
+            onClick={() => setSelectedFilter('JEE')}
+            style={{
+              padding: '0.75rem 1.5rem',
+              backgroundColor: selectedFilter === 'JEE' ? '#059669' : '#e5e7eb',
+              color: selectedFilter === 'JEE' ? 'white' : '#374151',
+              fontWeight: '600',
+              borderRadius: '0.375rem',
+              border: 'none',
+              cursor: 'pointer',
+              fontSize: '1rem'
+            }}
+          >
+            JEE Tests
+          </button>
+        </div>
+
         <h2 style={{ fontSize: '1.5rem', fontWeight: '600', marginBottom: '1.5rem', color: '#1f2937' }}>
-          All Tests
+          {selectedFilter === 'ALL' ? 'All Tests' : `${selectedFilter} Tests`}
         </h2>
 
         {loading ? (
@@ -173,9 +230,24 @@ export default function StudentDashboard() {
                 )}
 
                 <div style={{ marginTop: test.hasAttempted ? '1.5rem' : '0' }}>
-                  <h3 style={{ fontSize: '1.25rem', fontWeight: '600', marginBottom: '0.5rem', color: '#1e40af' }}>
-                    {test.title}
-                  </h3>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.5rem' }}>
+                    <h3 style={{ fontSize: '1.25rem', fontWeight: '600', margin: 0, color: '#1e40af' }}>
+                      {test.title}
+                    </h3>
+                    <span style={{
+                      padding: '0.25rem 0.5rem',
+                      backgroundColor: test.exam_type === 'NEET' ? '#fef2f2' : '#f0fdf4',
+                      color: test.exam_type === 'NEET' ? '#dc2626' : '#059669',
+                      fontSize: '0.625rem',
+                      fontWeight: '700',
+                      borderRadius: '0.25rem',
+                      border: `1px solid ${test.exam_type === 'NEET' ? '#fecaca' : '#bbf7d0'}`,
+                      textTransform: 'uppercase',
+                      letterSpacing: '0.05em'
+                    }}>
+                      {test.exam_type}
+                    </span>
+                  </div>
                   <p style={{ fontSize: '0.875rem', color: '#6b7280', marginBottom: '1rem', lineHeight: '1.5' }}>
                     {test.description || 'No description available'}
                   </p>

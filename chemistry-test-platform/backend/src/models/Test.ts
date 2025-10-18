@@ -5,6 +5,7 @@ export interface Test {
   duration_minutes: number;
   total_marks: number;
   is_active: boolean;
+  exam_type: 'NEET' | 'JEE';
   created_by: number;
   created_at: Date;
   updated_at: Date;
@@ -14,6 +15,7 @@ export interface CreateTestData {
   title: string;
   description: string;
   duration_minutes: number;
+  exam_type: 'NEET' | 'JEE';
 }
 
 export interface Question {

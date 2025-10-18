@@ -5,16 +5,20 @@ import { CreateTestData, CreateQuestionData, Test, Question } from '../models/Te
 
 export const createTest = async (req: AuthRequest, res: Response) => {
   try {
-    const { title, description, duration_minutes }: CreateTestData = req.body;
+    const { title, description, duration_minutes, exam_type }: CreateTestData = req.body;
     const teacherId = req.user!.id;
 
     if (!title || !duration_minutes) {
       return res.status(400).json({ error: 'Title and duration are required' });
     }
 
+    if (!exam_type || !['NEET', 'JEE'].includes(exam_type)) {
+      return res.status(400).json({ error: 'Exam type must be either NEET or JEE' });
+    }
+
     const result = await pool.query(
-      'INSERT INTO tests (title, description, duration_minutes, created_by) VALUES ($1, $2, $3, $4) RETURNING *',
-      [title, description || '', duration_minutes, teacherId]
+      'INSERT INTO tests (title, description, duration_minutes, exam_type, created_by) VALUES ($1, $2, $3, $4, $5) RETURNING *',
+      [title, description || '', duration_minutes, exam_type, teacherId]
     );
 
     res.status(201).json({ test: result.rows[0] });
@@ -27,15 +31,26 @@ export const createTest = async (req: AuthRequest, res: Response) => {
 export const getTests = async (req: AuthRequest, res: Response) => {
   try {
     const { role } = req.user!;
-    
+    const { exam_type } = req.query; // Get exam_type filter from query params
+
     let query: string;
     let params: any[] = [];
 
     if (role === 'teacher') {
-      query = 'SELECT * FROM tests WHERE created_by = $1 ORDER BY created_at DESC';
-      params = [req.user!.id];
+      if (exam_type && ['NEET', 'JEE'].includes(exam_type as string)) {
+        query = 'SELECT * FROM tests WHERE created_by = $1 AND exam_type = $2 ORDER BY created_at DESC';
+        params = [req.user!.id, exam_type];
+      } else {
+        query = 'SELECT * FROM tests WHERE created_by = $1 ORDER BY created_at DESC';
+        params = [req.user!.id];
+      }
     } else {
-      query = 'SELECT id, title, description, duration_minutes, total_marks FROM tests WHERE is_active = true ORDER BY created_at DESC';
+      if (exam_type && ['NEET', 'JEE'].includes(exam_type as string)) {
+        query = 'SELECT id, title, description, duration_minutes, total_marks, exam_type FROM tests WHERE is_active = true AND exam_type = $1 ORDER BY created_at DESC';
+        params = [exam_type];
+      } else {
+        query = 'SELECT id, title, description, duration_minutes, total_marks, exam_type FROM tests WHERE is_active = true ORDER BY created_at DESC';
+      }
     }
 
     const result = await pool.query(query, params);

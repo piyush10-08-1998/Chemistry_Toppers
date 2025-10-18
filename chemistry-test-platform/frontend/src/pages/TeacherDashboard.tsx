@@ -8,12 +8,14 @@ export default function TeacherDashboard() {
   const [user, setUser] = useState<User | null>(null);
   const [showCreateTest, setShowCreateTest] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [selectedFilter, setSelectedFilter] = useState<'ALL' | 'NEET' | 'JEE'>('ALL');
   const navigate = useNavigate();
 
   const [newTest, setNewTest] = useState({
     title: '',
     description: '',
-    duration_minutes: 30
+    duration_minutes: 30,
+    exam_type: 'NEET' as 'NEET' | 'JEE'
   });
 
   useEffect(() => {
@@ -26,14 +28,24 @@ export default function TeacherDashboard() {
     }
   }, [navigate]);
 
-  const fetchTests = async () => {
+  const fetchTests = async (filter?: 'NEET' | 'JEE') => {
     try {
-      const response = await apiClient.getTests();
+      const response = await apiClient.getTests(filter);
       setTests(response.tests || []);
     } catch (error) {
       console.error('Error fetching tests:', error);
     }
   };
+
+  useEffect(() => {
+    if (user) {
+      if (selectedFilter === 'ALL') {
+        fetchTests();
+      } else {
+        fetchTests(selectedFilter);
+      }
+    }
+  }, [selectedFilter, user]);
 
   const handleCreateTest = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -43,11 +55,16 @@ export default function TeacherDashboard() {
       await apiClient.createTest(
         newTest.title,
         newTest.description,
-        newTest.duration_minutes
+        newTest.duration_minutes,
+        newTest.exam_type
       );
-      setNewTest({ title: '', description: '', duration_minutes: 30 });
+      setNewTest({ title: '', description: '', duration_minutes: 30, exam_type: 'NEET' });
       setShowCreateTest(false);
-      fetchTests();
+      if (selectedFilter === 'ALL') {
+        fetchTests();
+      } else {
+        fetchTests(selectedFilter);
+      }
     } catch (error: any) {
       alert(error.response?.data?.error || 'Failed to create test');
     } finally {
@@ -116,8 +133,59 @@ export default function TeacherDashboard() {
 
       {/* Main Content */}
       <div style={{ maxWidth: '1200px', margin: '0 auto', padding: '2rem 1rem' }}>
+        {/* Filter Buttons */}
+        <div style={{ marginBottom: '1.5rem', display: 'flex', gap: '1rem', flexWrap: 'wrap' }}>
+          <button
+            onClick={() => setSelectedFilter('ALL')}
+            style={{
+              padding: '0.75rem 1.5rem',
+              backgroundColor: selectedFilter === 'ALL' ? '#1e40af' : '#e5e7eb',
+              color: selectedFilter === 'ALL' ? 'white' : '#374151',
+              fontWeight: '600',
+              borderRadius: '0.375rem',
+              border: 'none',
+              cursor: 'pointer',
+              fontSize: '1rem'
+            }}
+          >
+            All Tests
+          </button>
+          <button
+            onClick={() => setSelectedFilter('NEET')}
+            style={{
+              padding: '0.75rem 1.5rem',
+              backgroundColor: selectedFilter === 'NEET' ? '#dc2626' : '#e5e7eb',
+              color: selectedFilter === 'NEET' ? 'white' : '#374151',
+              fontWeight: '600',
+              borderRadius: '0.375rem',
+              border: 'none',
+              cursor: 'pointer',
+              fontSize: '1rem'
+            }}
+          >
+            NEET Tests
+          </button>
+          <button
+            onClick={() => setSelectedFilter('JEE')}
+            style={{
+              padding: '0.75rem 1.5rem',
+              backgroundColor: selectedFilter === 'JEE' ? '#059669' : '#e5e7eb',
+              color: selectedFilter === 'JEE' ? 'white' : '#374151',
+              fontWeight: '600',
+              borderRadius: '0.375rem',
+              border: 'none',
+              cursor: 'pointer',
+              fontSize: '1rem'
+            }}
+          >
+            JEE Tests
+          </button>
+        </div>
+
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem', flexWrap: 'wrap', gap: '1rem' }}>
-          <h2 style={{ fontSize: '1.5rem', fontWeight: '600', color: '#1f2937' }}>All Tests</h2>
+          <h2 style={{ fontSize: '1.5rem', fontWeight: '600', color: '#1f2937' }}>
+            {selectedFilter === 'ALL' ? 'All Tests' : `${selectedFilter} Tests`}
+          </h2>
           <button
             onClick={() => setShowCreateTest(!showCreateTest)}
             style={{
@@ -178,6 +246,27 @@ export default function TeacherDashboard() {
                     resize: 'vertical'
                   }}
                 />
+              </div>
+
+              <div style={{ marginBottom: '1rem' }}>
+                <label style={{ display: 'block', fontSize: '0.875rem', fontWeight: '500', marginBottom: '0.25rem' }}>
+                  Exam Type
+                </label>
+                <select
+                  value={newTest.exam_type}
+                  onChange={(e) => setNewTest({ ...newTest, exam_type: e.target.value as 'NEET' | 'JEE' })}
+                  style={{
+                    width: '200px',
+                    padding: '0.5rem',
+                    border: '1px solid #d1d5db',
+                    borderRadius: '0.375rem',
+                    fontSize: '1rem',
+                    backgroundColor: 'white'
+                  }}
+                >
+                  <option value="NEET">NEET</option>
+                  <option value="JEE">JEE</option>
+                </select>
               </div>
 
               <div style={{ marginBottom: '1rem' }}>
@@ -243,9 +332,22 @@ export default function TeacherDashboard() {
                 }}
               >
                 <div>
-                  <h3 style={{ fontSize: '1.25rem', fontWeight: '600', marginBottom: '0.25rem' }}>
-                    {test.title}
-                  </h3>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', marginBottom: '0.25rem' }}>
+                    <h3 style={{ fontSize: '1.25rem', fontWeight: '600', margin: 0 }}>
+                      {test.title}
+                    </h3>
+                    <span style={{
+                      padding: '0.25rem 0.75rem',
+                      backgroundColor: test.exam_type === 'NEET' ? '#fef2f2' : '#f0fdf4',
+                      color: test.exam_type === 'NEET' ? '#dc2626' : '#059669',
+                      fontSize: '0.75rem',
+                      fontWeight: '600',
+                      borderRadius: '0.375rem',
+                      border: `1px solid ${test.exam_type === 'NEET' ? '#fecaca' : '#bbf7d0'}`
+                    }}>
+                      {test.exam_type}
+                    </span>
+                  </div>
                   <p style={{ fontSize: '0.875rem', color: '#6b7280', marginBottom: '0.5rem' }}>
                     {test.description}
                   </p>
