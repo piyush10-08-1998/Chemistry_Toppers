@@ -37,6 +37,7 @@ export const getTests = async (req: AuthRequest, res: Response) => {
     let params: any[] = [];
 
     if (role === 'teacher') {
+      // Teachers see ALL their tests (both published and unpublished)
       if (exam_type && ['NEET', 'JEE'].includes(exam_type as string)) {
         query = 'SELECT * FROM tests WHERE created_by = $1 AND exam_type = $2 ORDER BY created_at DESC';
         params = [req.user!.id, exam_type];
@@ -45,11 +46,12 @@ export const getTests = async (req: AuthRequest, res: Response) => {
         params = [req.user!.id];
       }
     } else {
+      // Students see ONLY published tests
       if (exam_type && ['NEET', 'JEE'].includes(exam_type as string)) {
-        query = 'SELECT id, title, description, duration_minutes, total_marks, exam_type FROM tests WHERE is_active = true AND exam_type = $1 ORDER BY created_at DESC';
+        query = 'SELECT id, title, description, duration_minutes, total_marks, exam_type FROM tests WHERE is_active = true AND is_published = true AND exam_type = $1 ORDER BY created_at DESC';
         params = [exam_type];
       } else {
-        query = 'SELECT id, title, description, duration_minutes, total_marks, exam_type FROM tests WHERE is_active = true ORDER BY created_at DESC';
+        query = 'SELECT id, title, description, duration_minutes, total_marks, exam_type FROM tests WHERE is_active = true AND is_published = true ORDER BY created_at DESC';
       }
     }
 
@@ -186,6 +188,41 @@ export const deleteTest = async (req: AuthRequest, res: Response) => {
     res.json({ message: 'Test deleted successfully' });
   } catch (error) {
     console.error('Delete test error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+};
+
+export const togglePublishTest = async (req: AuthRequest, res: Response) => {
+  try {
+    const testId = parseInt(req.params.id);
+
+    const testResult = await pool.query(
+      'SELECT created_by, is_published FROM tests WHERE id = $1',
+      [testId]
+    );
+
+    if (testResult.rows.length === 0) {
+      return res.status(404).json({ error: 'Test not found' });
+    }
+
+    if (testResult.rows[0].created_by !== req.user!.id) {
+      return res.status(403).json({ error: 'Access denied' });
+    }
+
+    const currentStatus = testResult.rows[0].is_published;
+    const newStatus = !currentStatus;
+
+    const result = await pool.query(
+      'UPDATE tests SET is_published = $1 WHERE id = $2 RETURNING *',
+      [newStatus, testId]
+    );
+
+    res.json({
+      test: result.rows[0],
+      message: newStatus ? 'Test published to students' : 'Test unpublished (now private)'
+    });
+  } catch (error) {
+    console.error('Toggle publish test error:', error);
     res.status(500).json({ error: 'Internal server error' });
   }
 };

@@ -5,6 +5,7 @@ export interface Test {
   duration_minutes: number;
   total_marks: number;
   is_active: boolean;
+  is_published: boolean;
   exam_type: 'NEET' | 'JEE';
   created_by: number;
   created_at: Date;

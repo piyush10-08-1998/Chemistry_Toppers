@@ -74,6 +74,21 @@ class ApiClient {
     return response.data;
   }
 
+  public async deleteTest(testId: number) {
+    const response = await axios.delete(`${this.baseURL}/tests/${testId}`,
+      { headers: this.getHeaders() }
+    );
+    return response.data;
+  }
+
+  public async togglePublishTest(testId: number) {
+    const response = await axios.patch(`${this.baseURL}/tests/${testId}/publish`,
+      {},
+      { headers: this.getHeaders() }
+    );
+    return response.data;
+  }
+
   public async addQuestion(testId: number, questionData: Omit<Question, 'id' | 'test_id'>) {
     const response = await axios.post(`${this.baseURL}/tests/${testId}/questions`,
       questionData,

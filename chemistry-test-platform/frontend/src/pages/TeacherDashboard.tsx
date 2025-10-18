@@ -79,6 +79,40 @@ export default function TeacherDashboard() {
     navigate('/');
   };
 
+  const handleDeleteTest = async (testId: number, testTitle: string) => {
+    if (!window.confirm(`Are you sure you want to delete "${testTitle}"? This action cannot be undone.`)) {
+      return;
+    }
+
+    try {
+      await apiClient.deleteTest(testId);
+      // Refresh the test list
+      if (selectedFilter === 'ALL') {
+        fetchTests();
+      } else {
+        fetchTests(selectedFilter);
+      }
+      alert('Test deleted successfully');
+    } catch (error: any) {
+      alert(error.response?.data?.error || 'Failed to delete test');
+    }
+  };
+
+  const handleTogglePublish = async (testId: number, currentStatus: boolean) => {
+    try {
+      const response = await apiClient.togglePublishTest(testId);
+      alert(response.message);
+      // Refresh the test list
+      if (selectedFilter === 'ALL') {
+        fetchTests();
+      } else {
+        fetchTests(selectedFilter);
+      }
+    } catch (error: any) {
+      alert(error.response?.data?.error || 'Failed to update test status');
+    }
+  };
+
   return (
     <div style={{ minHeight: '100vh', backgroundColor: '#f0f9ff' }}>
       {/* Header */}
@@ -331,8 +365,8 @@ export default function TeacherDashboard() {
                   alignItems: 'center'
                 }}
               >
-                <div>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', marginBottom: '0.25rem' }}>
+                <div style={{ flex: 1 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', marginBottom: '0.25rem', flexWrap: 'wrap' }}>
                     <h3 style={{ fontSize: '1.25rem', fontWeight: '600', margin: 0 }}>
                       {test.title}
                     </h3>
@@ -347,6 +381,17 @@ export default function TeacherDashboard() {
                     }}>
                       {test.exam_type}
                     </span>
+                    <span style={{
+                      padding: '0.25rem 0.75rem',
+                      backgroundColor: test.is_published ? '#ecfdf5' : '#fef3c7',
+                      color: test.is_published ? '#059669' : '#d97706',
+                      fontSize: '0.75rem',
+                      fontWeight: '600',
+                      borderRadius: '0.375rem',
+                      border: `1px solid ${test.is_published ? '#bbf7d0' : '#fde68a'}`
+                    }}>
+                      {test.is_published ? '✓ Published' : '⚠ Draft'}
+                    </span>
                   </div>
                   <p style={{ fontSize: '0.875rem', color: '#6b7280', marginBottom: '0.5rem' }}>
                     {test.description}
@@ -356,21 +401,53 @@ export default function TeacherDashboard() {
                     <span>Total Marks: {test.total_marks}</span>
                   </div>
                 </div>
-                <button
-                  onClick={() => navigate(`/teacher/test/${test.id}`)}
-                  style={{
-                    padding: '0.5rem 1rem',
-                    backgroundColor: '#3b82f6',
-                    color: 'white',
-                    fontWeight: '500',
-                    borderRadius: '0.375rem',
-                    border: 'none',
-                    cursor: 'pointer',
-                    fontSize: '0.875rem'
-                  }}
-                >
-                  Add Questions
-                </button>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', minWidth: '180px' }}>
+                  <button
+                    onClick={() => navigate(`/teacher/test/${test.id}`)}
+                    style={{
+                      padding: '0.5rem 1rem',
+                      backgroundColor: '#3b82f6',
+                      color: 'white',
+                      fontWeight: '500',
+                      borderRadius: '0.375rem',
+                      border: 'none',
+                      cursor: 'pointer',
+                      fontSize: '0.875rem'
+                    }}
+                  >
+                    Add Questions
+                  </button>
+                  <button
+                    onClick={() => handleTogglePublish(test.id, test.is_published)}
+                    style={{
+                      padding: '0.5rem 1rem',
+                      backgroundColor: test.is_published ? '#f59e0b' : '#10b981',
+                      color: 'white',
+                      fontWeight: '500',
+                      borderRadius: '0.375rem',
+                      border: 'none',
+                      cursor: 'pointer',
+                      fontSize: '0.875rem'
+                    }}
+                  >
+                    {test.is_published ? 'Unpublish' : 'Send to Students'}
+                  </button>
+                  <button
+                    onClick={() => handleDeleteTest(test.id, test.title)}
+                    style={{
+                      padding: '0.5rem 1rem',
+                      backgroundColor: '#ef4444',
+                      color: 'white',
+                      fontWeight: '500',
+                      borderRadius: '0.375rem',
+                      border: 'none',
+                      cursor: 'pointer',
+                      fontSize: '0.875rem'
+                    }}
+                  >
+                    Delete Test
+                  </button>
+                </div>
               </div>
             ))
           )}
